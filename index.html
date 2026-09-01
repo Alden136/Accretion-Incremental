@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- user-scalable=no stops a fast double-tap from zooming the page mid-run -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+<meta name="theme-color" content="#03050b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Accretion</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<style>
+  html, body {
+    margin: 0; padding: 0; background: #03050b; color: #e8edf7;
+    /* stops the whole page bouncing / pull-to-refresh while tapping */
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #root {
+    min-height: 100vh;
+    min-height: 100dvh;          /* dodges the Android URL-bar resize jump */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
+  }
+  /* the save-code box still needs to be selectable */
+  textarea { -webkit-user-select: text; user-select: text; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="./app.js"></script>
+</body>
+</html>
