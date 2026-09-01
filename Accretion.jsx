@@ -25,15 +25,21 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
      grow past ~5e10 solar masses; above that its disk fragments
      into stars. So the ladder becomes bound structure instead.
    - Shard perks are bounded and none of them compound with mass.
-   Result: 41 stages, ~98s each, ~65 min for a first run;
-   ~12 min once you have a full set of shards.
+   - Pacing target is a geometric ramp, ~35s for the first stage to
+     ~330s for the last, and late accretors carry weaker milestones
+     so the final stretch turns sub-exponential.
+   - Stage bonus and offline windfall are fractions of the gap to
+     the NEXT stage, never fixed multipliers: a fixed x1.4 was 4% of
+     an early gap and 47% of the Sun-to-neutron-star gap.
+   Result: ~52s/stage in the rock era, ~113s planets-to-stars,
+   ~200s black holes, ~250s galaxies-to-universe; ~90 min first run.
    ============================================================ */
 
 const BALANCE = {
   costGrowth: 1.15,
   milestoneEvery: 10,
-  milestoneMult: 3.4,
-  stageBonus: 1.4,    // one-time mass grant on reaching a stage
+  stageShare: 0.12,   // stage bonus = this fraction of the way to the NEXT stage
+  offlineShare: 0.40, // offline earnings can never carry you past this fraction
   tapShare: 0.1,      // fraction of a second's output per tap
   offlineRate: 0.5,
   offlineCapH: 8,
@@ -45,7 +51,7 @@ const BALANCE = {
 const ATOM = 1.67e-27;
 const SUN = 1.989e30;
 const EARTH = 5.972e24;
-const SAVE_KEY = 'accretion_save_v5';
+const SAVE_KEY = 'accretion_save_v6';
 
 /* --- the ladder: every threshold is a real mass in kg --- */
 const TIERS = [
@@ -105,25 +111,25 @@ const PRESTIGE_AT = 29;
    ladder: where stages sit ~1 decade apart (planet through star) the
    yield is low so those stages don't blur past. */
 const GENS = [
-  { n: 'Quantum foam sifter',   d: 'Skims virtual pairs out of empty space',   cost: 1e-26, y: 0.070, c: '#93c5fd' },
-  { n: 'Molecular binder',      d: 'Chemistry, run at a profit',               cost: 1e-19, y: 0.043, c: '#a5b4fc' },
-  { n: 'Dust accreter',         d: 'Sweeps grains from a cold nebula',         cost: 1e-11, y: 0.108, c: '#cbd5e1' },
-  { n: 'Electrostatic clumper', d: 'Static charge welds dust into gravel',     cost: 1e-2,  y: 0.036, c: '#d6d3d1' },
-  { n: 'Gravity well',          d: 'Mass finally starts attracting mass',      cost: 1e6,   y: 0.058, c: '#fbbf24' },
-  { n: 'Runaway accreter',      d: 'The biggest body eats fastest',            cost: 1e11,  y: 0.019, c: '#f59e0b' },
-  { n: 'Orbital dredge',        d: 'Clears the neighbourhood, permanently',    cost: 1e16,  y: 0.0065, c: '#f97316' },
-  { n: 'Planetary sweeper',     d: 'Bends whole orbits into your path',        cost: 1e20,  y: 0.0046, c: '#38bdf8' },
-  { n: 'Atmosphere harvester',  d: 'Strips hydrogen and helium from the disk', cost: 1e25,  y: 0.0016, c: '#67e8f9' },
-  { n: 'Stellar nursery',       d: 'Collapses a molecular cloud on demand',    cost: 1e28,  y: 0.0040, c: '#fb923c' },
-  { n: 'Fusion core',           d: 'Burns hydrogen and hoards the ash',        cost: 1e30,  y: 0.0013, c: '#fde68a' },
-  { n: 'Degenerate press',      d: 'Packs matter past what electrons allow',   cost: 1e32,  y: 0.0033, c: '#e0f2fe' },
-  { n: 'Accretion disk',        d: 'Infall at a tenth of light speed',         cost: 1e34,  y: 0.0028, c: '#c084fc' },
-  { n: 'Horizon trawler',       d: 'Swallows star systems whole',              cost: 1e38,  y: 0.0055, c: '#f0abfc' },
-  { n: 'Merger cascade',        d: 'Two holes become one, over and over',      cost: 1e41,  y: 0.0018, c: '#f472b6' },
-  { n: 'Halo assembler',        d: 'Binds dark matter into a halo around you', cost: 1e44,  y: 0.00061, c: '#818cf8' },
-  { n: 'Cluster infall',        d: 'Whole galaxies arrive on radial orbits',   cost: 1e47,  y: 0.00061, c: '#c4b5fd' },
-  { n: 'Filament siphon',       d: 'Draws matter down the cosmic web',         cost: 5e49,  y: 0.00020, c: '#5eead4' },
-  { n: 'Horizon harvest',       d: 'Gathers everything light can still reach', cost: 1e52,  y: 0.00007, c: '#ffffff' },
+  { n: 'Quantum foam sifter',   d: 'Skims virtual pairs out of empty space',   cost: 1e-26, y: 0.153, m: 3.4, c: '#93c5fd' },
+  { n: 'Molecular binder',      d: 'Chemistry, run at a profit',               cost: 1e-19, y: 0.083, m: 3.4, c: '#a5b4fc' },
+  { n: 'Dust accreter',         d: 'Sweeps grains from a cold nebula',         cost: 1e-11, y: 0.11, m: 3.4, c: '#cbd5e1' },
+  { n: 'Electrostatic clumper', d: 'Static charge welds dust into gravel',     cost: 1e-2,  y: 0.05, m: 3.4, c: '#d6d3d1' },
+  { n: 'Gravity well',          d: 'Mass finally starts attracting mass',      cost: 1e6,   y: 0.043, m: 3.4, c: '#fbbf24' },
+  { n: 'Runaway accreter',      d: 'The biggest body eats fastest',            cost: 1e11,  y: 0.025, m: 3.4, c: '#f59e0b' },
+  { n: 'Orbital dredge',        d: 'Clears the neighbourhood, permanently',    cost: 1e16,  y: 0.0085, m: 3.4, c: '#f97316' },
+  { n: 'Planetary sweeper',     d: 'Bends whole orbits into your path',        cost: 1e20,  y: 0.0028, m: 3.4, c: '#38bdf8' },
+  { n: 'Atmosphere harvester',  d: 'Strips hydrogen and helium from the disk', cost: 1e25,  y: 0.001, m: 3.4, c: '#67e8f9' },
+  { n: 'Stellar nursery',       d: 'Collapses a molecular cloud on demand',    cost: 1e28,  y: 0.0025, m: 3.4, c: '#fb923c' },
+  { n: 'Fusion core',           d: 'Burns hydrogen and hoards the ash',        cost: 1e30,  y: 0.00098, m: 3.25, c: '#fde68a' },
+  { n: 'Degenerate press',      d: 'Packs matter past what electrons allow',   cost: 1e32,  y: 0.0019, m: 3.15, c: '#e0f2fe' },
+  { n: 'Accretion disk',        d: 'Infall at a tenth of light speed',         cost: 1e34,  y: 0.0049, m: 3.05, c: '#c084fc' },
+  { n: 'Horizon trawler',       d: 'Swallows star systems whole',              cost: 1e38,  y: 0.011, m: 2.95, c: '#f0abfc' },
+  { n: 'Merger cascade',        d: 'Two holes become one, over and over',      cost: 1e41,  y: 0.0036, m: 2.9, c: '#f472b6' },
+  { n: 'Halo assembler',        d: 'Binds dark matter into a halo around you', cost: 1e44,  y: 0.0012, m: 2.85, c: '#818cf8' },
+  { n: 'Cluster infall',        d: 'Whole galaxies arrive on radial orbits',   cost: 1e47,  y: 0.003, m: 2.8, c: '#c4b5fd' },
+  { n: 'Filament siphon',       d: 'Draws matter down the cosmic web',         cost: 5e49,  y: 0.001, m: 2.75, c: '#5eead4' },
+  { n: 'Horizon harvest',       d: 'Gathers everything light can still reach', cost: 1e52,  y: 0.0004, m: 2.7, c: '#ffffff' },
 ];
 GENS.forEach((g) => { g.prod = g.cost * g.y; });
 
@@ -145,9 +151,9 @@ const UPGRADES = [
 const SHARD_C = '#f0abfc';
 const PERKS = [
   { n: 'Residual disk',       d: 'Begin every run with 20 levels of your first two accretors', cost: 4 },
-  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%',               cost: 8 },
+  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, up to the cap', cost: 8 },
   { n: 'Tidal capture',       d: 'Pulls draw a quarter-second of output instead of a tenth',   cost: 14 },
-  { n: 'Fossil metallicity',  d: 'Each new stage grants +70% mass instead of +40%',            cost: 24 },
+  { n: 'Fossil metallicity',  d: 'Stage bonuses nearly double: 22% of the next gap, not 12%',   cost: 24 },
 ];
 
 /* ---------- number formatting ---------- */
@@ -363,7 +369,12 @@ const newGame = () => ({
 /* perks change these three constants; none of them compound with progress */
 const offlineRate = (s) => (s.perks[1] ? 0.8 : BALANCE.offlineRate);
 const tapShare = (s) => (s.perks[2] ? 0.25 : BALANCE.tapShare);
-const stageBonus = (s) => (s.perks[3] ? 1.7 : BALANCE.stageBonus);
+/* Stages sit ~4 decades apart early and ~1 apart late, so any fixed
+   multiplier is trivial early and a huge shortcut late. Both bonuses are
+   therefore expressed as a share of the gap to the next stage. */
+const gapAfter = (i) => (i + 1 < TIERS.length ? Math.log10(TIERS[i + 1].at) - Math.log10(TIERS[i].at) : 1);
+const stageBonus = (s, i) => Math.pow(10, (s.perks[3] ? 0.22 : BALANCE.stageShare) * gapAfter(i));
+const offlineCap = (s) => Math.pow(10, BALANCE.offlineShare * gapAfter(s.stage));
 const applyPerks = (s) => {
   if (s.perks[0]) { s.gens[0] = Math.max(s.gens[0], 20); s.gens[1] = Math.max(s.gens[1], 20); }
   return s;
@@ -382,7 +393,7 @@ const upMult = (s) =>
 const genOutput = (s, i) => {
   const c = s.gens[i];
   if (!c) return 0;
-  return c * GENS[i].prod * Math.pow(BALANCE.milestoneMult, Math.floor(c / BALANCE.milestoneEvery));
+  return c * GENS[i].prod * Math.pow(GENS[i].m, Math.floor(c / BALANCE.milestoneEvery));
 };
 const prod = (s) => s.gens.reduce((a, _, i) => a + genOutput(s, i), 0) * upMult(s);
 const tapGain = (s) => ATOM * 3 * Math.pow(2, s.tap) + prod(s) * tapShare(s);
@@ -403,7 +414,7 @@ const shardsFrom = (mass) =>
 /* ---------- save handling ----------
    normalize() is the single place a save is validated, so a file from
    storage and a pasted save code go through identical checks. */
-const SAVE_VER = 5;
+const SAVE_VER = 6;
 
 const normalize = (v) => {
   const s = { ...newGame(), ...v };
@@ -719,8 +730,9 @@ export default function Accretion() {
           SFX.setOn(s.sfx);
           setSavedAt(v.lastSave || null);
           const dt = clamp((Date.now() - (v.lastSave || Date.now())) / 1000, 0, BALANCE.offlineCapH * 3600);
-          const gain = prod(s) * dt * offlineRate(s);
-          if (dt > 60 && gain > 0) { s.mass += gain; setWelcome({ dt, gain }); }
+          const raw = prod(s) * dt * offlineRate(s);
+          const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s) - 1));
+          if (dt > 60 && gain > 0) { s.mass += gain; setWelcome({ dt, gain, capped: gain < raw }); }
         }
       } catch (e) { /* first run, or no storage */ }
       render((x) => x + 1);
@@ -744,7 +756,7 @@ export default function Accretion() {
   const checkStage = (s) => {
     const st = stageFor(s.best);
     if (st > s.stage) {
-      for (let i = s.stage + 1; i <= st; i++) s.mass *= stageBonus(s);
+      for (let i = s.stage + 1; i <= st; i++) s.mass *= stageBonus(s, i);
       s.stage = st;
       SFX.stageUp(st);
       SFX.humStage(st);
@@ -909,7 +921,7 @@ export default function Accretion() {
       setIo(null); setTab('gen'); setWipe(false);
       save(); render((x) => x + 1);
     } catch (e) {
-      setIo({ ...io, msg: "That code couldn't be read. Paste the whole thing, including the ACC5- prefix." });
+      setIo({ ...io, msg: "That code couldn't be read. Paste the whole thing, including the ACC6- prefix." });
     }
   };
 
@@ -1090,7 +1102,7 @@ export default function Accretion() {
                   title={GENS[i].n} sub={GENS[i].d} right={owned ? `${owned}` : ''}
                   cost={`${fmt(c)} kg${n > 1 ? ` · ${n}×` : ''}`}
                   note={owned
-                    ? `+${fmt(genOutput(s, i) * upMult(s))} kg/s · ×3.4 in ${toMs}`
+                    ? `+${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} in ${toMs}`
                     : `+${fmt(GENS[i].prod * upMult(s))} kg/s each`}
                 />
               );
@@ -1186,7 +1198,7 @@ export default function Accretion() {
       {flash && (
         <div className="ac-flash">
           <div style={{ borderColor: `${flash.c[0]}66`, color: flash.c[0] }}>
-            {flash.n} · +40% mass
+            {flash.n} · +{Math.round((stageBonus(s, s.stage) - 1) * 100)}% mass
           </div>
         </div>
       )}
@@ -1196,7 +1208,8 @@ export default function Accretion() {
           <div className="ac-card">
             <div className="ac-tier" style={{ color: accent }}>You kept accreting</div>
             <div className="ac-blurb" style={{ marginTop: 6 }}>
-              {Math.floor(welcome.dt / 3600)}h {Math.floor((welcome.dt % 3600) / 60)}m away, at half efficiency.
+              {Math.floor(welcome.dt / 3600)}h {Math.floor((welcome.dt % 3600) / 60)}m away.
+              {welcome.capped ? ' Offline growth carries you part of the way to the next stage, never past it.' : ''}
             </div>
             <div className="ac-mass" style={{ fontSize: 22, marginTop: 10 }}>+{fmt(welcome.gain)} kg</div>
             <button className="ac-btn" style={{ background: accent }} onClick={() => setWelcome(null)}>Keep going</button>
@@ -1219,7 +1232,7 @@ export default function Accretion() {
               readOnly={io.mode === 'export'}
               onFocus={(e) => io.mode === 'export' && e.target.select()}
               onChange={(e) => setIo({ ...io, text: e.target.value, msg: '' })}
-              placeholder={io.mode === 'import' ? 'ACC5-…' : undefined} />
+              placeholder={io.mode === 'import' ? 'ACC6-…' : undefined} />
             {io.msg ? <div className="ac-sub" style={{ marginTop: 6 }}>{io.msg}</div> : null}
             {io.mode === 'export' ? (
               <button className="ac-btn" style={{ background: accent }} onClick={copyCode}>Copy code</button>
