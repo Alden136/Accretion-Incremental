@@ -1,0 +1,37 @@
+<!-- Accretion app icon. Source of truth for icon-192.png, icon-512.png
+     and icon-512-maskable.png (which is this artwork scaled to 0.74 so it
+     sits inside the maskable safe zone). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bgF5" cx="50%" cy="44%" r="76%">
+      <stop offset="0%" stop-color="#181243"/><stop offset="50%" stop-color="#080a1e"/>
+      <stop offset="100%" stop-color="#03050b"/></radialGradient>
+    <linearGradient id="dF5" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7c3aed"/><stop offset="15%" stop-color="#b021c9"/>
+      <stop offset="33%" stop-color="#e11d73"/><stop offset="49%" stop-color="#fb7185"/>
+      <stop offset="63%" stop-color="#fdba74"/><stop offset="75%" stop-color="#fffbeb"/>
+      <stop offset="87%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#c026d3"/></linearGradient>
+    <filter id="softF5" x="-70%" y="-260%" width="240%" height="620%"><feGaussianBlur stdDeviation="13"/></filter>
+    <filter id="haloF5" x="-90%" y="-90%" width="280%" height="280%"><feGaussianBlur stdDeviation="22"/></filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#bgF5)"/>
+  <circle cx="508.3" cy="52.6" r="2.26" fill="#fff" opacity="0.64"/><circle cx="463.0" cy="404.3" r="0.74" fill="#fff" opacity="0.20"/><circle cx="3.9" cy="288.6" r="0.95" fill="#fff" opacity="0.61"/><circle cx="419.0" cy="70.2" r="2.04" fill="#fff" opacity="0.53"/><circle cx="324.3" cy="53.6" r="1.19" fill="#fff" opacity="0.61"/><circle cx="75.7" cy="245.7" r="1.35" fill="#fff" opacity="0.30"/><circle cx="85.2" cy="54.3" r="1.14" fill="#fff" opacity="0.57"/><circle cx="138.7" cy="497.7" r="1.49" fill="#fff" opacity="0.49"/><circle cx="378.4" cy="62.6" r="1.12" fill="#fff" opacity="0.53"/><circle cx="395.0" cy="0.8" r="1.58" fill="#fff" opacity="0.43"/><circle cx="135.2" cy="383.8" r="2.17" fill="#fff" opacity="0.58"/><circle cx="163.8" cy="113.5" r="0.83" fill="#fff" opacity="0.48"/><circle cx="505.3" cy="481.6" r="2.14" fill="#fff" opacity="0.34"/><circle cx="192.1" cy="423.9" r="1.93" fill="#fff" opacity="0.23"/><circle cx="168.6" cy="94.4" r="0.75" fill="#fff" opacity="0.57"/><circle cx="509.9" cy="198.4" r="1.57" fill="#fff" opacity="0.50"/><circle cx="67.0" cy="140.3" r="2.18" fill="#fff" opacity="0.32"/><circle cx="81.7" cy="43.3" r="1.75" fill="#fff" opacity="0.34"/><circle cx="63.9" cy="458.2" r="0.94" fill="#fff" opacity="0.53"/><circle cx="511.7" cy="115.5" r="2.17" fill="#fff" opacity="0.61"/><circle cx="91.7" cy="387.2" r="1.54" fill="#fff" opacity="0.42"/><circle cx="454.9" cy="252.1" r="1.07" fill="#fff" opacity="0.33"/><circle cx="299.7" cy="481.2" r="1.23" fill="#fff" opacity="0.54"/><circle cx="79.9" cy="215.3" r="1.87" fill="#fff" opacity="0.41"/><circle cx="441.2" cy="7.5" r="0.92" fill="#fff" opacity="0.27"/><circle cx="432.3" cy="206.0" r="1.80" fill="#fff" opacity="0.33"/><circle cx="213.8" cy="496.8" r="0.98" fill="#fff" opacity="0.39"/><circle cx="69.4" cy="378.3" r="1.07" fill="#fff" opacity="0.21"/><circle cx="2.2" cy="434.5" r="1.70" fill="#fff" opacity="0.27"/>
+  <g transform="translate(256.0 256.0) scale(1.0) translate(-256.0 -256.0)">
+    <g transform="rotate(-16 256.0 256.0)">
+      <path d="M 82.0 256.0 A 174 124 0 0 1 430.0 256.0" fill="none" stroke="url(#dF5)" stroke-width="60" opacity=".34" filter="url(#softF5)"/>
+      <path d="M 82.0 256.0 A 174 124 0 0 1 430.0 256.0" fill="none" stroke="url(#dF5)" stroke-width="30" stroke-linecap="round"/>
+      <path d="M 82.0 256.0 A 174 124 0 0 1 430.0 256.0" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" opacity=".30"/>
+    </g>
+    <circle cx="256.0" cy="256.0" r="112" fill="#fbbf24" opacity=".20" filter="url(#haloF5)"/>
+    <circle cx="256.0" cy="256.0" r="112" fill="#e879f9" opacity=".15" filter="url(#haloF5)"/>
+    <circle cx="256.0" cy="256.0" r="76" fill="#03030a"/>
+    <circle cx="256.0" cy="256.0" r="76" fill="none" stroke="#fff8dc" stroke-width="5.5"/>
+    <circle cx="256.0" cy="256.0" r="84" fill="none" stroke="#f5a9fc" stroke-width="2.2" opacity=".42"/>
+    <g transform="rotate(-16 256.0 256.0)">
+      
+      <path d="M 82.0 256.0 A 174 40 0 0 0 430.0 256.0" fill="none" stroke="url(#dF5)" stroke-width="56" opacity=".28" filter="url(#softF5)"/>
+      <path d="M 82.0 256.0 A 174 40 0 0 0 430.0 256.0" fill="none" stroke="url(#dF5)" stroke-width="30" stroke-linecap="round"/>
+      <path d="M 82.0 256.0 A 174 40 0 0 0 430.0 256.0" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" opacity=".36"/>
+    </g>
+  </g>
+</svg>
