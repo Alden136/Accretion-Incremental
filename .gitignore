@@ -1,0 +1,5 @@
+# build.sh installs react and esbuild into the working tree to build app.js.
+# The bundle is committed; the toolchain that produced it is not.
+node_modules/
+package-lock.json
+package.json

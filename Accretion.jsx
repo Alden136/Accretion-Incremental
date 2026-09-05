@@ -3,49 +3,70 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 /* ============================================================
    ACCRETION — an incremental game about mass
 
-   Economy notes (simulated before shipping):
-   - Every accretor pays for itself in 20s at level 1.
+   Economy notes (every figure below is simulated before shipping):
    - Cost grows 1.15x per level; production milestones give x3.4
      every 10 levels. Cost wins slightly (payback +1.75%/level),
      so no accretor can run away on its own.
-   - Unlocking the next accretor is worth ~4x the value of your
-     current one. That burst is the whole progression rhythm.
-   - Stage bonuses are ONE-TIME mass grants, never permanent
-     production multipliers. Permanent multipliers that scale
-     with progress are what break an economy like this.
-   - Global upgrades are a bounded set of seven, x17 in total.
    - Accretors sit every ~2.3 stages instead of every ~5 decades.
      The old spacing let one accretor (Fusion Core) span eight
      stages, so the whole planet-to-star run had no pacing control.
    - Each accretor carries its own yield, solved numerically against
-     the local density of the mass ladder. Stages sit ~4 decades
-     apart early and ~1 decade apart from planet to star, so a flat
-     yield makes the late ladder blur past.
+     the pacing target below. Payback rises monotonically down the
+     ladder — 7s for the foam sifter to ~3h for the horizon harvest.
+     A yield that dips (the old Horizon trawler paid back in 91s,
+     faster than five cheaper accretors) makes the late game
+     re-accelerate instead of settling.
    - Act two (galaxy onward) exists because one black hole cannot
      grow past ~5e10 solar masses; above that its disk fragments
      into stars. So the ladder becomes bound structure instead.
-   - Shard perks are bounded and none of them compound with mass.
-   - Pacing target is a geometric ramp, ~35s for the first stage to
-     ~330s for the last, and late accretors carry weaker milestones
-     so the final stretch turns sub-exponential.
+   - Stage bonuses are ONE-TIME mass grants, never permanent
+     production multipliers. Production is the only source of mass,
+     and every price is denominated in mass, so a permanent global
+     multiplier of x divides the whole run length by exactly x.
+     That is why the shard bonus is capped (see shardCap): at the
+     old +15%/shard, one collapse ended the game in four minutes.
    - Stage bonus and offline windfall are fractions of the gap to
      the NEXT stage, never fixed multipliers: a fixed x1.4 was 4% of
-     an early gap and 47% of the Sun-to-neutron-star gap.
-   Result: ~52s/stage in the rock era, ~113s planets-to-stars,
-   ~200s black holes, ~250s galaxies-to-universe; ~90 min first run.
+     an early gap and 47% of the Sun-to-neutron-star gap. The gap is
+     read clamped to [1.2, 3.0] decades, because the raw ladder runs
+     from 0.31 decades (Sun to neutron star) to 5.0 (pebble to
+     boulder), which made one stage bonus x1.09 and another x3.98.
+   - Global upgrades are a bounded set of ten, x58 in total.
+   - The pull track is bounded too: ten levels, each +1.5% of a
+     second's output, and then it is done. It used to double a flat
+     kg figure against a cost growing 8x, so it was dead weight by
+     the third level while still asking to be bought.
+   - Offline is capped per hour away, not by one flat fraction of a
+     stage. Flat, the cap bound about half an hour in, so hours two
+     through eight of any absence earned nothing while the game still
+     advertised an eight-hour window. Eight hours is now ~1.5 stages.
+   - Pacing target is a geometric ramp, ~35s for the first stage to
+     ~53 min for the last. The ramp carries the length: the opening
+     stays as quick as it ever was and the back half does the work,
+     because a run this long cannot afford a slow first minute.
+   Simulated result: ~1 min/stage in the rock era, ~7 min planets-to-
+   stars, ~18 min black holes, ~34 min galaxies-to-universe; ~8 h
+   first run, settling to ~2.7 h once the shard cap is reached.
    ============================================================ */
 
 const BALANCE = {
   costGrowth: 1.15,
   milestoneEvery: 10,
   stageShare: 0.12,   // stage bonus = this fraction of the way to the NEXT stage
-  offlineShare: 0.40, // offline earnings can never carry you past this fraction
+  offlineShare: 0.19, // offline cap, in gaps-to-the-next-stage, PER HOUR away
+  offlineShareDeep: 0.28, // ...and with the Deep time perk
+  gapMin: 1.2,        // both bonuses read the gap to the next stage clamped to
+  gapMax: 3.0,        // this range, so neither a 0.31- nor a 5.0-decade step rules
   tapShare: 0.1,      // fraction of a second's output per tap
+  tapStep: 0.015,     // each pull upgrade adds this much to that fraction
+  tapLevels: 10,      // ...and the track stops there
   offlineRate: 0.5,
   offlineCapH: 8,
   shardRate: 2,
   shardPower: 0.07,
-  shardValue: 0.15,   // +15% production per shard ever earned
+  shardValue: 0.06,   // shape of the shard production bonus
+  shardCap: 3,        // ...which can never exceed this. See the note above:
+                      // an uncapped multiplier is a direct divisor on run length.
 };
 
 const ATOM = 1.67e-27;
@@ -107,29 +128,32 @@ const PRESTIGE_AT = 29;
 
 /* Accretors are spaced to sit every ~2.3 stages rather than every ~5
    decades, so no single unlock spans a whole run of stages. Each one
-   carries its own yield, solved against the local density of the mass
-   ladder: where stages sit ~1 decade apart (planet through star) the
-   yield is low so those stages don't blur past. */
+   carries its own yield, solved numerically against the pacing target
+   in the header. Two rules hold the solution together: yields fall
+   monotonically down the ladder (so payback only ever grows, and the
+   late game settles instead of re-accelerating), and every accretor
+   is reachable — the last one used to cost 1e52 for a 2500s payback,
+   which no run ever got far enough to want. */
 const GENS = [
-  { n: 'Quantum foam sifter',   d: 'Skims virtual pairs out of empty space',   cost: 1e-26, y: 0.153, m: 3.4, c: '#93c5fd' },
-  { n: 'Molecular binder',      d: 'Chemistry, run at a profit',               cost: 1e-19, y: 0.083, m: 3.4, c: '#a5b4fc' },
-  { n: 'Dust accreter',         d: 'Sweeps grains from a cold nebula',         cost: 1e-11, y: 0.11, m: 3.4, c: '#cbd5e1' },
-  { n: 'Electrostatic clumper', d: 'Static charge welds dust into gravel',     cost: 1e-2,  y: 0.05, m: 3.4, c: '#d6d3d1' },
-  { n: 'Gravity well',          d: 'Mass finally starts attracting mass',      cost: 1e6,   y: 0.043, m: 3.4, c: '#fbbf24' },
-  { n: 'Runaway accreter',      d: 'The biggest body eats fastest',            cost: 1e11,  y: 0.025, m: 3.4, c: '#f59e0b' },
-  { n: 'Orbital dredge',        d: 'Clears the neighbourhood, permanently',    cost: 1e16,  y: 0.0085, m: 3.4, c: '#f97316' },
-  { n: 'Planetary sweeper',     d: 'Bends whole orbits into your path',        cost: 1e20,  y: 0.0028, m: 3.4, c: '#38bdf8' },
-  { n: 'Atmosphere harvester',  d: 'Strips hydrogen and helium from the disk', cost: 1e25,  y: 0.001, m: 3.4, c: '#67e8f9' },
-  { n: 'Stellar nursery',       d: 'Collapses a molecular cloud on demand',    cost: 1e28,  y: 0.0025, m: 3.4, c: '#fb923c' },
-  { n: 'Fusion core',           d: 'Burns hydrogen and hoards the ash',        cost: 1e30,  y: 0.00098, m: 3.25, c: '#fde68a' },
-  { n: 'Degenerate press',      d: 'Packs matter past what electrons allow',   cost: 1e32,  y: 0.0019, m: 3.15, c: '#e0f2fe' },
-  { n: 'Accretion disk',        d: 'Infall at a tenth of light speed',         cost: 1e34,  y: 0.0049, m: 3.05, c: '#c084fc' },
-  { n: 'Horizon trawler',       d: 'Swallows star systems whole',              cost: 1e38,  y: 0.011, m: 2.95, c: '#f0abfc' },
-  { n: 'Merger cascade',        d: 'Two holes become one, over and over',      cost: 1e41,  y: 0.0036, m: 2.9, c: '#f472b6' },
-  { n: 'Halo assembler',        d: 'Binds dark matter into a halo around you', cost: 1e44,  y: 0.0012, m: 2.85, c: '#818cf8' },
-  { n: 'Cluster infall',        d: 'Whole galaxies arrive on radial orbits',   cost: 1e47,  y: 0.003, m: 2.8, c: '#c4b5fd' },
-  { n: 'Filament siphon',       d: 'Draws matter down the cosmic web',         cost: 5e49,  y: 0.001, m: 2.75, c: '#5eead4' },
-  { n: 'Horizon harvest',       d: 'Gathers everything light can still reach', cost: 1e52,  y: 0.0004, m: 2.7, c: '#ffffff' },
+  { n: 'Quantum foam sifter',   d: 'Skims virtual pairs out of empty space',   cost: 1e-26, y: 0.15, m: 3.4, c: '#93c5fd' },
+  { n: 'Molecular binder',      d: 'Chemistry, run at a profit',               cost: 1e-19, y: 0.049, m: 3.4, c: '#a5b4fc' },
+  { n: 'Dust accreter',         d: 'Sweeps grains from a cold nebula',         cost: 1e-11, y: 0.049, m: 3.4, c: '#cbd5e1' },
+  { n: 'Electrostatic clumper', d: 'Static charge welds dust into gravel',     cost: 1e-2,  y: 0.01, m: 3.4, c: '#d6d3d1' },
+  { n: 'Gravity well',          d: 'Mass finally starts attracting mass',      cost: 1e6,   y: 0.005, m: 3.4, c: '#fbbf24' },
+  { n: 'Runaway accreter',      d: 'The biggest body eats fastest',            cost: 1e11,  y: 0.0028, m: 3.4, c: '#f59e0b' },
+  { n: 'Orbital dredge',        d: 'Clears the neighbourhood, permanently',    cost: 1e16,  y: 0.00036, m: 3.4, c: '#f97316' },
+  { n: 'Planetary sweeper',     d: 'Bends whole orbits into your path',        cost: 1e20,  y: 0.00016, m: 3.4, c: '#38bdf8' },
+  { n: 'Atmosphere harvester',  d: 'Strips hydrogen and helium from the disk', cost: 1e25,  y: 0.00016, m: 3.4, c: '#67e8f9' },
+  { n: 'Stellar nursery',       d: 'Collapses a molecular cloud on demand',    cost: 1e28,  y: 0.00016, m: 3.4, c: '#fb923c' },
+  { n: 'Fusion core',           d: 'Burns hydrogen and hoards the ash',        cost: 1e30,  y: 0.00016, m: 3.25, c: '#fde68a' },
+  { n: 'Degenerate press',      d: 'Packs matter past what electrons allow',   cost: 1e32,  y: 0.00016, m: 3.15, c: '#e0f2fe' },
+  { n: 'Accretion disk',        d: 'Infall at a tenth of light speed',         cost: 1e34,  y: 0.00016, m: 3.05, c: '#c084fc' },
+  { n: 'Horizon trawler',       d: 'Swallows star systems whole',              cost: 1e38,  y: 0.00015, m: 2.95, c: '#f0abfc' },
+  { n: 'Merger cascade',        d: 'Two holes become one, over and over',      cost: 1e41,  y: 9.8e-05, m: 2.9, c: '#f472b6' },
+  { n: 'Halo assembler',        d: 'Binds dark matter into a halo around you', cost: 1e44,  y: 5.9e-05, m: 2.85, c: '#818cf8' },
+  { n: 'Cluster infall',        d: 'Whole galaxies arrive on radial orbits',   cost: 1e47,  y: 3.1e-05, m: 2.8, c: '#c4b5fd' },
+  { n: 'Filament siphon',       d: 'Draws matter down the cosmic web',         cost: 5e49,  y: 1.1e-05, m: 2.75, c: '#5eead4' },
+  { n: 'Horizon harvest',       d: 'Gathers everything light can still reach', cost: 1e52,  y: 1.1e-05, m: 2.7, c: '#ffffff' },
 ];
 GENS.forEach((g) => { g.prod = g.cost * g.y; });
 
@@ -147,13 +171,17 @@ const UPGRADES = [
   { n: 'Comoving capture',       d: 'You outpace the expansion of space itself',  cost: 1e51,  mult: 1.5, c: '#e879f9' },
 ];
 
-/* spent with collapse shards; bounded, and none of them compound */
+/* Spent with collapse shards; bounded, and none of them compound.
+   Priced by simulated strength, not by position in the list: Tidal
+   capture is worth ~30% off a run if you actually tap, Fossil
+   metallicity ~4%, Residual disk ~2%. The old sheet charged 14 and 24
+   the other way round. */
 const SHARD_C = '#f0abfc';
 const PERKS = [
   { n: 'Residual disk',       d: 'Begin every run with 20 levels of your first two accretors', cost: 4 },
-  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, up to the cap', cost: 8 },
-  { n: 'Tidal capture',       d: 'Pulls draw a quarter-second of output instead of a tenth',   cost: 14 },
-  { n: 'Fossil metallicity',  d: 'Stage bonuses nearly double: 22% of the next gap, not 12%',   cost: 24 },
+  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, and caps ~50% later', cost: 8 },
+  { n: 'Tidal capture',       d: 'Pulls draw a quarter-second of output instead of a tenth',   cost: 22 },
+  { n: 'Fossil metallicity',  d: 'Stage bonuses nearly double: 22% of the next gap, not 12%',   cost: 12 },
 ];
 
 /* ---------- number formatting ---------- */
@@ -363,18 +391,40 @@ const newGame = () => ({
   mass: 0, best: 0, stage: 0, gens: GENS.map(() => 0), ups: UPGRADES.map(() => false),
   tap: 0, shards: 0, shardsTotal: 0, perks: PERKS.map(() => false),
   collapses: 0, taps: 0, played: 0, lastSave: Date.now(),
-  sfx: true, hum: false,
+  sfx: true, hum: false, dev: false,
 });
+
+/* Developer mode: everything is free and nothing is hidden, so a build can be
+   walked through end to end without playing eight hours of it. It is a flag on
+   the save, not a build switch, so a dev save stays marked as one — the header
+   shows a DEV badge and it survives a collapse. */
+const devFree = (s) => !!s.dev;
 
 /* perks change these three constants; none of them compound with progress */
 const offlineRate = (s) => (s.perks[1] ? 0.8 : BALANCE.offlineRate);
-const tapShare = (s) => (s.perks[2] ? 0.25 : BALANCE.tapShare);
+const offlineShare = (s) => (s.perks[1] ? BALANCE.offlineShareDeep : BALANCE.offlineShare);
+/* A pull is worth a share of a second's output — the only scale-free way
+   to price it, since the ladder spans 78 decades. The upgrade moves that
+   share, and stops after tapLevels; the flat term only matters in the
+   first few seconds of a run, before anything is producing. */
+const tapShare = (s) =>
+  (s.perks[2] ? 0.25 : BALANCE.tapShare) +
+  BALANCE.tapStep * Math.min(s.tap, BALANCE.tapLevels);
 /* Stages sit ~4 decades apart early and ~1 apart late, so any fixed
    multiplier is trivial early and a huge shortcut late. Both bonuses are
-   therefore expressed as a share of the gap to the next stage. */
-const gapAfter = (i) => (i + 1 < TIERS.length ? Math.log10(TIERS[i + 1].at) - Math.log10(TIERS[i].at) : 1);
+   therefore expressed as a share of the gap to the next stage — clamped,
+   because the raw gap runs from 0.31 decades to 5.0 and the ends of that
+   range give a stage bonus of x1.09 (nothing) and x3.98 (a free stage). */
+const gapAfter = (i) => clamp(
+  i + 1 < TIERS.length ? Math.log10(TIERS[i + 1].at) - Math.log10(TIERS[i].at) : 1,
+  BALANCE.gapMin, BALANCE.gapMax);
 const stageBonus = (s, i) => Math.pow(10, (s.perks[3] ? 0.22 : BALANCE.stageShare) * gapAfter(i));
-const offlineCap = (s) => Math.pow(10, BALANCE.offlineShare * gapAfter(s.stage));
+/* The cap grows with the length of the absence rather than being one flat
+   fraction of a stage. Flat, it bound after ~30 minutes away, so hours two
+   through eight of any absence earned nothing while the UI still advertised
+   an eight-hour window. Eight hours is now worth ~1.5 stages, one hour ~0.2. */
+const offlineCap = (s, hours) =>
+  Math.pow(10, offlineShare(s) * gapAfter(s.stage) * clamp(hours, 0, BALANCE.offlineCapH));
 const applyPerks = (s) => {
   if (s.perks[0]) { s.gens[0] = Math.max(s.gens[0], 20); s.gens[1] = Math.max(s.gens[1], 20); }
   return s;
@@ -386,9 +436,18 @@ const stageFor = (best) => {
   return i;
 };
 
+/* Shards saturate towards shardCap and never pass it. Production is the
+   only source of mass and every price is in mass, so the whole run is
+   just time-rescaled by a global multiplier: x5 output is a five-times
+   shorter game, exactly. Unbounded (+15% a shard, x5 after one collapse)
+   that ended the game in four minutes on the second run. */
+const shardMult = (s) => {
+  const c = BALANCE.shardCap;
+  return c - (c - 1) / (1 + BALANCE.shardValue * (s.shardsTotal || 0));
+};
+
 const upMult = (s) =>
-  UPGRADES.reduce((a, u, i) => a * (s.ups[i] ? u.mult : 1), 1) *
-  (1 + BALANCE.shardValue * (s.shardsTotal || 0));
+  UPGRADES.reduce((a, u, i) => a * (s.ups[i] ? u.mult : 1), 1) * shardMult(s);
 
 const genOutput = (s, i) => {
   const c = s.gens[i];
@@ -408,6 +467,7 @@ const genMax = (i, count, mass) => {
   return Math.max(0, Math.floor(Math.log(1 + (mass * (r - 1)) / base) / Math.log(r)));
 };
 const tapCost = (s) => 1e-25 * Math.pow(8, s.tap);
+const tapMaxed = (s) => s.tap >= BALANCE.tapLevels;
 const shardsFrom = (mass) =>
   Math.floor(BALANCE.shardRate * Math.pow(Math.max(mass, 1) / TIERS[PRESTIGE_AT].at, BALANCE.shardPower));
 
@@ -422,7 +482,7 @@ const normalize = (v) => {
   s.ups = UPGRADES.map((_, i) => !!v.ups?.[i]);
   s.mass = Math.max(0, Number(s.mass) || 0);
   s.best = Math.max(Number(s.best) || 0, s.mass);
-  s.tap = Math.max(0, Math.floor(Number(s.tap) || 0));
+  s.tap = clamp(Math.floor(Number(s.tap) || 0), 0, BALANCE.tapLevels);
   s.shards = Math.max(0, Math.floor(Number(s.shards) || 0));
   s.shardsTotal = Math.max(Math.floor(Number(v.shardsTotal) || 0), s.shards);
   s.perks = PERKS.map((_, i) => !!v.perks?.[i]);
@@ -431,6 +491,7 @@ const normalize = (v) => {
   s.played = Math.max(0, Number(s.played) || 0);
   s.sfx = v.sfx !== false;
   s.hum = !!v.hum;
+  s.dev = !!v.dev;
   s.stage = stageFor(s.best);
   return s;
 };
@@ -731,10 +792,12 @@ export default function Accretion() {
           setSavedAt(v.lastSave || null);
           const dt = clamp((Date.now() - (v.lastSave || Date.now())) / 1000, 0, BALANCE.offlineCapH * 3600);
           const raw = prod(s) * dt * offlineRate(s);
-          const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s) - 1));
+          const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s, dt / 3600) - 1));
           if (dt > 60 && gain > 0) { s.mass += gain; setWelcome({ dt, gain, capped: gain < raw }); }
         }
       } catch (e) { /* first run, or no storage */ }
+      // outside the try: a first run has no save to read, and that throws
+      if (/[?&]dev\b/.test(location.search)) G.current.dev = true;
       render((x) => x + 1);
     })();
   }, []);
@@ -820,9 +883,12 @@ export default function Accretion() {
   };
 
   const buyGen = (i) => {
-    const n = amt === -1 ? genMax(i, s.gens[i], s.mass) : amt;
+    const free = devFree(s);
+    // "buy max" with free purchases would price off a mass you never spend,
+    // so in dev it means a fixed block of levels instead
+    const n = amt === -1 ? (free ? 25 : genMax(i, s.gens[i], s.mass)) : amt;
     if (n < 1) return;
-    const c = genCost(i, s.gens[i], n);
+    const c = free ? 0 : genCost(i, s.gens[i], n);
     if (c > s.mass) return;
     const before = Math.floor(s.gens[i] / BALANCE.milestoneEvery);
     s.mass -= c; s.gens[i] += n;
@@ -831,16 +897,17 @@ export default function Accretion() {
   };
 
   const buyTap = () => {
-    const c = tapCost(s);
-    if (c > s.mass) return;
+    const c = devFree(s) ? 0 : tapCost(s);
+    if (tapMaxed(s) || c > s.mass) return;
     s.mass -= c; s.tap++;
     SFX.tapUp(s.tap);
     render((x) => x + 1);
   };
 
   const buyUp = (i) => {
-    if (s.ups[i] || UPGRADES[i].cost > s.mass) return;
-    s.mass -= UPGRADES[i].cost; s.ups[i] = true;
+    const c = devFree(s) ? 0 : UPGRADES[i].cost;
+    if (s.ups[i] || c > s.mass) return;
+    s.mass -= c; s.ups[i] = true;
     SFX.upgrade();
     render((x) => x + 1);
   };
@@ -855,19 +922,62 @@ export default function Accretion() {
       shardsTotal: (s.shardsTotal || 0) + got,
       perks: s.perks.slice(),
       collapses: s.collapses + 1,
-      taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum,
+      taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum, dev: s.dev,
     });
     SFX.humStage(0);
     setConfirm(false); setTab('gen'); save(); render((x) => x + 1);
   };
 
   const buyPerk = (i) => {
-    if (s.perks[i] || PERKS[i].cost > s.shards) return;
-    s.shards -= PERKS[i].cost;
+    const c = devFree(s) ? 0 : PERKS[i].cost;
+    if (s.perks[i] || c > s.shards) return;
+    s.shards -= c;
     s.perks[i] = true;
     applyPerks(s);
     SFX.upgrade();
     save(); render((x) => x + 1);
+  };
+
+  /* Dev mode is off unless you ask for it: five taps on the play-time stat,
+     or ?dev in the URL. Neither happens by accident during a normal run. */
+  const devTaps = useRef(0);
+  const nudgeDev = () => {
+    devTaps.current += 1;
+    if (devTaps.current < 5) return;
+    devTaps.current = 0;
+    setDev(!s.dev);
+  };
+  const setDev = (on) => {
+    s.dev = on;
+    SFX.upgrade();
+    save(); render((x) => x + 1);
+  };
+
+  /* Test tools. Each one moves the real state the real way, so what you are
+     looking at afterwards is a state the game could actually reach. */
+  const devGrant = (mult) => {
+    s.mass = Math.max(s.mass, ATOM) * mult;
+    if (s.mass > s.best) { s.best = s.mass; checkStage(s); }
+    SFX.buy(); render((x) => x + 1);
+  };
+  const devSkipStage = () => {
+    const next = TIERS[s.stage + 1];
+    if (!next) return;
+    s.mass = Math.max(s.mass, next.at);
+    s.best = s.mass; checkStage(s);
+    render((x) => x + 1);
+  };
+  /* Run the production loop forward without waiting for it. This is the one
+     that matters for pacing work: it answers "where am I an hour from now". */
+  const devFastForward = (hours) => {
+    s.mass += prod(s) * hours * 3600;
+    s.played += hours * 3600;
+    if (s.mass > s.best) { s.best = s.mass; checkStage(s); }
+    SFX.milestone(); render((x) => x + 1);
+  };
+  const devShards = (n) => {
+    s.shards += n; s.shardsTotal = (s.shardsTotal || 0) + n;
+    SFX.buy(); render((x) => x + 1);
   };
 
   const toggleSfx = () => {
@@ -926,8 +1036,10 @@ export default function Accretion() {
   };
 
   const size = Math.min(74 + s.stage * 2.7, 178);
-  const visible = GENS.map((g, i) => i).filter((i) => i < 2 || s.best >= GENS[i].cost * 0.2 || s.gens[i] > 0);
-  const openUps = UPGRADES.map((u, i) => i).filter((i) => !s.ups[i] && s.best >= UPGRADES[i].cost * 0.15);
+  const visible = GENS.map((g, i) => i)
+    .filter((i) => s.dev || i < 2 || s.best >= GENS[i].cost * 0.2 || s.gens[i] > 0);
+  const openUps = UPGRADES.map((u, i) => i)
+    .filter((i) => !s.ups[i] && (s.dev || s.best >= UPGRADES[i].cost * 0.15));
 
   return (
     <div className="ac-app" style={{
@@ -1030,6 +1142,10 @@ export default function Accretion() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div className="ac-tier" style={{ color: accent }}>{tier.n}</div>
           <div className="ac-toggles">
+            {s.dev && (
+              <button className="on" onClick={() => setDev(false)} aria-label="Developer mode is on"
+                style={{ color: '#fca5a5', borderColor: '#fca5a566', background: '#fca5a51f' }}>dev</button>
+            )}
             <button className={s.sfx ? 'on' : ''} onClick={toggleSfx} aria-label="Sound effects"
               style={s.sfx ? { color: accent, borderColor: `${accent}66`, background: `${accent}1f` } : undefined}>sfx</button>
             <button className={s.sfx && s.hum ? 'on' : ''} onClick={toggleHum} aria-label="Ambient hum"
@@ -1094,13 +1210,14 @@ export default function Accretion() {
           <div className="ac-list">
             {visible.map((i) => {
               const owned = s.gens[i];
-              const n = amt === -1 ? Math.max(genMax(i, owned, s.mass), 1) : amt;
-              const c = genCost(i, owned, n);
+              const free = devFree(s);
+              const n = amt === -1 ? (free ? 25 : Math.max(genMax(i, owned, s.mass), 1)) : amt;
+              const c = free ? 0 : genCost(i, owned, n);
               const toMs = BALANCE.milestoneEvery - (owned % BALANCE.milestoneEvery);
               return (
-                <Row key={i} accent={accent} tint={GENS[i].c} ok={c <= s.mass} onClick={() => buyGen(i)}
+                <Row key={i} accent={accent} tint={GENS[i].c} ok={free || c <= s.mass} onClick={() => buyGen(i)}
                   title={GENS[i].n} sub={GENS[i].d} right={owned ? `${owned}` : ''}
-                  cost={`${fmt(c)} kg${n > 1 ? ` · ${n}×` : ''}`}
+                  cost={`${free ? 'free' : `${fmt(c)} kg`}${n > 1 ? ` · ${n}×` : ''}`}
                   note={owned
                     ? `+${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} in ${toMs}`
                     : `+${fmt(GENS[i].prod * upMult(s))} kg/s each`}
@@ -1116,14 +1233,20 @@ export default function Accretion() {
 
       {tab === 'up' && (
         <div className="ac-list">
-          <Row accent={accent} tint="#fcd34d" ok={tapCost(s) <= s.mass} onClick={buyTap}
-            title="Capture cross-section" sub="Doubles what one pull brings in"
-            right={`lv ${s.tap}`} cost={`${fmt(tapCost(s))} kg`} note={`pull = ${fmt(tapGain(s))} kg`} />
+          <Row accent={accent} tint="#fcd34d" ok={!tapMaxed(s) && (devFree(s) || tapCost(s) <= s.mass)} onClick={buyTap}
+            title="Capture cross-section"
+            sub={tapMaxed(s)
+              ? 'Every pull takes the widest bite it can'
+              : `Each pull takes +${(BALANCE.tapStep * 100).toFixed(1)}% of a second's output`}
+            right={`lv ${s.tap} / ${BALANCE.tapLevels}`}
+            cost={tapMaxed(s) ? 'Maxed' : devFree(s) ? 'free' : `${fmt(tapCost(s))} kg`}
+            note={`pull = ${fmt(tapGain(s))} kg · ${(tapShare(s) * 100).toFixed(1)}% of a second`} />
 
           {openUps.map((i) => (
-            <Row key={i} accent={accent} tint={UPGRADES[i].c} ok={UPGRADES[i].cost <= s.mass} onClick={() => buyUp(i)}
+            <Row key={i} accent={accent} tint={UPGRADES[i].c} onClick={() => buyUp(i)}
+              ok={devFree(s) || UPGRADES[i].cost <= s.mass}
               title={UPGRADES[i].n} sub={UPGRADES[i].d}
-              cost={`${fmt(UPGRADES[i].cost)} kg`} note={`×${UPGRADES[i].mult} to everything`} />
+              cost={devFree(s) ? 'free' : `${fmt(UPGRADES[i].cost)} kg`} note={`×${UPGRADES[i].mult} to everything`} />
           ))}
 
           <div style={{ padding: '10px 11px', borderRadius: 12, background: 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.07)' }}>
@@ -1132,7 +1255,7 @@ export default function Accretion() {
               <span style={{ color: SHARD_C }}>{s.shards} shards</span>
             </div>
             <div className="ac-row-s">
-              Once you are supermassive you can collapse back to hydrogen. Everything resets except shards. Every shard you have ever earned adds 15% output permanently, and they also buy the perks below.
+              Once you are supermassive you can collapse back to hydrogen. Everything resets except shards. Every shard you have ever earned raises output, with diminishing returns towards ×{BALANCE.shardCap} — you are at ×{shardMult(s).toFixed(2)} now. They also buy the perks below.
             </div>
             {s.stage >= PRESTIGE_AT ? (
               <button className="ac-btn" style={{ background: accent }} onClick={() => setConfirm(true)}>
@@ -1143,16 +1266,17 @@ export default function Accretion() {
             )}
           </div>
 
-          {(s.shardsTotal > 0) && (
+          {(s.dev || s.shardsTotal > 0) && (
             <>
               <div className="ac-sub" style={{ padding: '8px 2px 2px' }}>
                 Shard perks · <span style={{ color: SHARD_C }}>{s.shards} to spend</span>
               </div>
               {PERKS.map((p, i) => (
-                <Row key={i} accent={accent} tint={SHARD_C} ok={!s.perks[i] && p.cost <= s.shards}
-                  onClick={() => buyPerk(i)} title={p.n} sub={p.d}
+                <Row key={i} accent={accent} tint={SHARD_C} onClick={() => buyPerk(i)}
+                  ok={!s.perks[i] && (devFree(s) || p.cost <= s.shards)}
+                  title={p.n} sub={p.d}
                   right={s.perks[i] ? 'owned' : ''}
-                  cost={s.perks[i] ? 'Active' : `${p.cost} shards`} />
+                  cost={s.perks[i] ? 'Active' : devFree(s) ? 'free' : `${p.cost} shards`} />
               ))}
             </>
           )}
@@ -1172,7 +1296,8 @@ export default function Accretion() {
             ['Shards earned', `${s.shardsTotal || 0}`],
             ['Time in this universe', `${Math.floor(s.played / 60)}m ${Math.floor(s.played % 60)}s`],
           ].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 11px', fontSize: 12.5 }}>
+            <div key={k} onClick={k === 'Time in this universe' ? nudgeDev : undefined}
+              style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 11px', fontSize: 12.5 }}>
               <span style={{ color: '#7d8ca8' }}>{k}</span>
               <span style={{ fontVariantNumeric: 'tabular-nums', color: k === 'Shards earned' ? SHARD_C : accent }}>{v}</span>
             </div>
@@ -1192,6 +1317,35 @@ export default function Accretion() {
             onClick={() => { if (wipe) { G.current = newGame(); SFX.hum(false); setWipe(false); save(); } else setWipe(true); }}>
             {wipe ? 'Tap again to erase everything' : 'Start over'}
           </button>
+
+          {s.dev && (
+            <div style={{
+              marginTop: 10, padding: '10px 11px', borderRadius: 12,
+              background: 'rgba(252,165,165,.06)', border: '1px solid rgba(252,165,165,.28)',
+            }}>
+              <div className="ac-row-t" style={{ marginBottom: 3 }}>
+                <span style={{ color: '#fca5a5' }}>Developer mode</span>
+                <span style={{ color: '#fca5a5' }}>free</span>
+              </div>
+              <div className="ac-row-s" style={{ marginBottom: 8 }}>
+                Accretors, physics, the pull track and perks all cost nothing, and
+                nothing is hidden behind an unlock. Tap the play time five times
+                again to leave.
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <button className="ac-tab" onClick={() => devFastForward(1)}>+1 hour</button>
+                <button className="ac-tab" onClick={() => devFastForward(8)}>+8 hours</button>
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <button className="ac-tab" onClick={devSkipStage}>Next stage</button>
+                <button className="ac-tab" onClick={() => devGrant(1e6)}>×10⁶ mass</button>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="ac-tab" onClick={() => devShards(25)}>+25 shards</button>
+                <button className="ac-tab" onClick={() => setDev(false)}>Leave dev mode</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1209,7 +1363,7 @@ export default function Accretion() {
             <div className="ac-tier" style={{ color: accent }}>You kept accreting</div>
             <div className="ac-blurb" style={{ marginTop: 6 }}>
               {Math.floor(welcome.dt / 3600)}h {Math.floor((welcome.dt % 3600) / 60)}m away.
-              {welcome.capped ? ' Offline growth carries you part of the way to the next stage, never past it.' : ''}
+              {welcome.capped ? ' Offline growth is capped by how long you were gone — longer away, further carried.' : ''}
             </div>
             <div className="ac-mass" style={{ fontSize: 22, marginTop: 10 }}>+{fmt(welcome.gain)} kg</div>
             <button className="ac-btn" style={{ background: accent }} onClick={() => setWelcome(null)}>Keep going</button>
