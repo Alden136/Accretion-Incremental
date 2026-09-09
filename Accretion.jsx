@@ -107,12 +107,18 @@ const TIERS = [
   { n: 'Sun-like star',      at: SUN,     k: 'star',    c: ['#fde68a', '#f59e0b'], d: 'One solar mass, burning hydrogen on the main sequence.' },
   { n: 'Neutron star',       at: 4.1e30,  k: 'neutron', c: ['#e0f2fe', '#38bdf8'], d: 'PSR J0740+6620: two solar masses packed into twenty kilometres.' },
   { n: 'Blue supergiant',    at: 4e31,    k: 'star',    c: ['#bfdbfe', '#2563eb'], d: 'Twenty solar masses, spent in ten million years.' },
-  { n: 'Stellar black hole', at: 2e32,    k: 'hole',    c: ['#a78bfa', '#1e1b4b'], d: 'The core lost its argument with gravity.' },
-  { n: 'Intermediate hole',  at: 2e33,    k: 'hole',    c: ['#c084fc', '#2e1065'], d: 'A thousand suns. Rare, and mostly still hypothetical.' },
-  { n: 'Seed hole',          at: 1e35,    k: 'hole',    c: ['#d8b4fe', '#3b0764'], d: 'Half a million suns, waiting for a galaxy to form around it.' },
-  { n: 'Supermassive hole',  at: 8.5e36,  k: 'hole',    c: ['#f0abfc', '#4a044e'], d: 'Sagittarius A*, anchoring everything you can see.' },
-  { n: 'Quasar engine',      at: 1e39,    k: 'hole',    c: ['#f5d0fe', '#701a75'], d: 'Feeding hard enough to outshine its host galaxy.' },
-  { n: 'Ultramassive hole',  at: 1.3e41,  k: 'hole',    c: ['#fbcfe8', '#f472b6'], d: 'TON 618. Sixty-six billion suns — near the ceiling for any one hole.' },
+  { n: 'Stellar black hole', at: 2e32,    k: 'hole',    c: ['#a78bfa', '#1e1b4b'], d: 'The core lost its argument with gravity.',
+    h: { r: 0.34, disk: 0.78, dh: 0.30, spin: 2.0, ring: 0.35, glow: 0.8, feed: 'companion' } },
+  { n: 'Intermediate hole',  at: 2e33,    k: 'hole',    c: ['#c084fc', '#2e1065'], d: 'A thousand suns. Rare, and mostly still hypothetical.',
+    h: { r: 0.42, disk: 0.88, dh: 0.34, spin: 2.8, ring: 0.5, feed: 'cluster' } },
+  { n: 'Seed hole',          at: 1e35,    k: 'hole',    c: ['#d8b4fe', '#3b0764'], d: 'Half a million suns, waiting for a galaxy to form around it.',
+    h: { r: 0.48, disk: 0.72, dh: 0.50, diskOp: 0.4, spin: 6.5, ring: 0.5, glow: 0.7, feed: 'dust' } },
+  { n: 'Supermassive hole',  at: 8.5e36,  k: 'hole',    c: ['#f0abfc', '#4a044e'], d: 'Sagittarius A*, anchoring everything you can see.',
+    h: { r: 0.52, disk: 1.05, dh: 0.40, spin: 4.2, ring: 0.7, feed: 'orbits' } },
+  { n: 'Quasar engine',      at: 1e39,    k: 'hole',    c: ['#f5d0fe', '#701a75'], d: 'Feeding hard enough to outshine its host galaxy.',
+    h: { r: 0.44, disk: 1.02, dh: 0.30, diskOp: 1, spin: 1.5, ring: 0.6, glow: 1.4, jet: 1 } },
+  { n: 'Ultramassive hole',  at: 1.3e41,  k: 'hole',    c: ['#fbcfe8', '#f472b6'], d: 'TON 618. Sixty-six billion suns — near the ceiling for any one hole.',
+    h: { r: 0.70, disk: 1.30, dh: 0.30, diskOp: 0.55, spin: 9.0, ring: 1.0, glow: 0.9 } },
 
   /* Act two. A single black hole cannot grow much past TON 618: above
      roughly 5e10 solar masses the accretion disk fragments into stars
@@ -812,16 +818,114 @@ function Body({ tier, size }) {
     );
   }
 
+  /* Six tiers share this one. What actually separates a stellar-mass hole from
+     a quasar is not the hole, it is what surrounds it — a companion star being
+     stripped, a star cluster, cold gas, orbiting S-stars, jets — so those live
+     in tier.h rather than in six near-identical branches. Layering matters:
+     disk 1, feed 1, jets 2, photon ring 3, horizon 4. Without an explicit
+     z-index the disk paints last and swallows the jets. */
   if (tier.k === 'hole') {
+    const {
+      r = 0.56, disk = 1, dh = 0.42, diskOp = 0.92, spin = 3.4,
+      jet = 0, ring = 0, glow = 1, feed = null,
+    } = tier.h || {};
+    const hz = size * r;
+    const dot = (x, y, sc, i) => (
+      <div key={`c${i}`} style={{
+        position: 'absolute', left: `${x}%`, top: `${y}%`,
+        width: size * 0.052 * sc, height: size * 0.052 * sc, borderRadius: '50%',
+        background: '#fff', opacity: 0.35 + sc * 0.5, boxShadow: `0 0 ${size * 0.03}px ${a}`, zIndex: 1,
+      }} />
+    );
     return (
       <div className="ac-body" style={s}>
-        <div className="ac-disk" style={{
-          width: size * 1.35, height: size * 0.42,
-          background: `conic-gradient(from 0deg, ${b}, ${a}, #fff, ${a}, ${b}, ${a}, #fff, ${b})`,
-        }} />
+        {disk ? (
+          <div className="ac-disk" style={{
+            width: size * 1.35 * disk, height: size * dh * disk, opacity: diskOp,
+            animationDuration: `${spin}s`, zIndex: 1,
+            background: `conic-gradient(from 0deg, ${b}, ${a}, #fff, ${a}, ${b}, ${a}, #fff, ${b})`,
+          }} />
+        ) : null}
+
+        {feed === 'companion' && (<>
+          <div style={{
+            position: 'absolute', left: '2%', top: '22%', width: size * 0.50, height: size * 0.40,
+            borderRadius: '50%', border: `${size * 0.030}px solid transparent`,
+            borderTopColor: '#dbeafe', borderRightColor: '#93c5fd',
+            transform: 'rotate(22deg)', filter: `blur(${size * 0.012}px)`, opacity: 0.75, zIndex: 1,
+          }} />
+          <div style={{
+            position: 'absolute', left: '4%', top: '24%', width: size * 0.22, height: size * 0.22,
+            borderRadius: '50%', zIndex: 3,
+            background: 'radial-gradient(circle at 38% 34%, #fff 14%, #dbeafe 42%, #60a5fa 82%)',
+            boxShadow: `0 0 ${size * 0.16}px #93c5fd, 0 0 ${size * 0.05}px #fff`,
+          }} />
+        </>)}
+
+        {feed === 'cluster' && [[14, 20, 0.55], [82, 26, 0.7], [26, 78, 0.5], [72, 74, 0.6], [6, 54, 0.4],
+          [92, 58, 0.45], [44, 8, 0.5], [58, 92, 0.4], [34, 40, 0.3], [66, 40, 0.35]]
+          .map(([x, y, sc], i) => dot(x, y, sc, i))}
+
+        {feed === 'dust' && [[-18, 14, 86, 44, 0.5, -16], [28, 58, 82, 40, 0.42, 12],
+          [6, -10, 66, 34, 0.3, 8], [46, 20, 58, 30, 0.26, -6]].map(([x, y, w, hh, o, rot], i) => (
+          <div key={`d${i}`} style={{
+            position: 'absolute', left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${hh}%`,
+            borderRadius: '50%', opacity: o, transform: `rotate(${rot}deg)`,
+            filter: `blur(${size * 0.05}px)`, zIndex: 1,
+            background: 'radial-gradient(ellipse, #8d5340, #43203a 55%, transparent 76%)',
+          }} />
+        ))}
+
+        {feed === 'orbits' && [[1.16, 0.52, -22, 26, '#fff'], [0.92, 0.38, 34, 18, '#fde68a'],
+          [1.32, 0.30, 8, 34, '#bfdbfe']].map(([w, hh, rot, dur, col], i) => (
+          <div key={`o${i}`} className="ac-slowspin" style={{
+            position: 'absolute', width: size * w, height: size * hh,
+            animationDuration: `${dur}s`, transform: `rotate(${rot}deg)`, zIndex: 1,
+          }}>
+            <div style={{ position: 'absolute', inset: 0, border: `1px solid ${a}55`, borderRadius: '50%' }} />
+            <div style={{
+              position: 'absolute', left: 0, top: '50%', width: size * 0.03, height: size * 0.03,
+              marginTop: -size * 0.015, borderRadius: '50%', background: col,
+              boxShadow: `0 0 ${size * 0.05}px ${col}`,
+            }} />
+          </div>
+        ))}
+
+        {jet ? ['bottom', 'top'].map((edge) => {
+          const jw = size * 0.13 * jet, jh = size * 0.78 * jet;
+          const dir = edge === 'bottom' ? 'to top' : 'to bottom';
+          // anchored by ONE edge at the centre line: setting top and bottom
+          // together with a height makes top win and both beams point the same
+          // way. 0% of the gradient is the end at the hole, so the bright stop
+          // goes first or the beam blazes at the tip and vanishes at its throat.
+          return (
+            <div key={edge}>
+              <div style={{
+                position: 'absolute', left: '50%', [edge]: '50%', width: jw, height: jh,
+                marginLeft: -jw / 2, filter: `blur(${size * 0.020}px)`, opacity: 0.85, zIndex: 2,
+                background: `linear-gradient(${dir}, #ffffff, #f5d0fe 16%, ${a}bb 46%, ${a}44 74%, ${a}00 100%)`,
+              }} />
+              <div style={{
+                position: 'absolute', left: '50%', [edge]: '50%', width: jw * 0.30, height: jh * 0.97,
+                marginLeft: -jw * 0.15, filter: `blur(${size * 0.005}px)`, zIndex: 2,
+                background: `linear-gradient(${dir}, #fff, #fff 34%, ${a}66 72%, transparent 100%)`,
+              }} />
+            </div>
+          );
+        }) : null}
+
+        {ring ? (
+          <div style={{
+            position: 'absolute', width: hz * 1.16, height: hz * 1.16, borderRadius: '50%', zIndex: 3,
+            border: `${Math.max(1.2, size * 0.008 * ring)}px solid #ffffff${ring > 0.8 ? '' : 'aa'}`,
+            boxShadow: `0 0 ${size * 0.05 * ring}px #fff, inset 0 0 ${size * 0.04 * ring}px #fff`,
+            opacity: Math.min(0.95, 0.45 + ring * 0.4),
+          }} />
+        ) : null}
+
         <div style={{
-          width: size * 0.56, height: size * 0.56, borderRadius: '50%', background: '#000', zIndex: 3,
-          boxShadow: `0 0 0 2px ${a}, 0 0 ${size * 0.22}px ${a}cc, 0 0 ${size * 0.7}px ${b}`,
+          width: hz, height: hz, borderRadius: '50%', background: '#000', zIndex: 4,
+          boxShadow: `0 0 0 2px ${a}, 0 0 ${size * 0.22 * glow}px ${a}cc, 0 0 ${size * 0.7 * glow}px ${b}`,
         }} />
       </div>
     );
