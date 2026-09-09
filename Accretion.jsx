@@ -99,8 +99,8 @@ const TIERS = [
   { n: 'Metal asteroid',     at: 2.29e19, k: 'rock',    c: ['#cbd5e1', '#475569'], d: '16 Psyche: iron and nickel, possibly a stripped planetary core.' },
   { n: 'Asteroid',           at: 2.59e20, k: 'rock',    c: ['#b45309', '#451a03'], d: 'Vesta-class: melted, layered, and 4.5 billion years old.' },
   { n: 'Dwarf planet',       at: 1.31e22, k: 'dwarf',   c: ['#e8c493', '#6b3f1f'], d: 'Pluto-class. Round under its own gravity at last.' },
-  { n: 'Terrestrial planet', at: EARTH,   k: 'planet',  c: ['#38bdf8', '#047857'], d: 'One Earth mass. Enough pull to keep an atmosphere.' },
-  { n: 'Ice giant',          at: 1.02e26, k: 'planet',  c: ['#67e8f9', '#0e7490'], d: 'Neptune-class. Supersonic winds over a mantle of hot ice.' },
+  { n: 'Terrestrial planet', at: EARTH,   k: 'world',   c: ['#38bdf8', '#047857'], d: 'One Earth mass. Enough pull to keep an atmosphere.' },
+  { n: 'Ice giant',          at: 1.02e26, k: 'ice',     c: ['#7dd3fc', '#075985'], d: 'Neptune-class. Supersonic winds over a mantle of hot ice.' },
   { n: 'Gas giant',          at: 1.90e27, k: 'gas',     c: ['#fcd34d', '#b45309'], d: 'Jupiter-class. Hydrogen turns metallic in the core.' },
   { n: 'Brown dwarf',        at: 2.5e28,  k: 'gas',     c: ['#fb923c', '#7c2d12'], d: 'Thirteen Jupiters. Fuses deuterium, and little else.' },
   { n: 'Red dwarf',          at: 1.6e29,  k: 'star',    c: ['#f87171', '#7f1d1d'], d: 'Fully convective and frugal. Good for a trillion years.' },
@@ -336,7 +336,7 @@ const SFX = (() => {
       } else if (kind === 'rock') {
         noise({ dur: 0.07, gain: 0.1, freq: 540 * d * j, q: 1.4 });
         tone(124 * d * j, { type: 'sine', dur: 0.1, gain: 0.14, glide: 82 * d });
-      } else if (kind === 'planet' || kind === 'gas' || kind === 'dwarf') {
+      } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf') {
         tone(196 * d * j, { type: 'sine', dur: 0.18, gain: 0.16, glide: 152 * d });
         noise({ dur: 0.13, gain: 0.035, freq: 900, type: 'lowpass' });
       } else if (kind === 'star') {
@@ -615,20 +615,122 @@ function Body({ tier, size }) {
     );
   }
 
-  if (tier.k === 'planet' || tier.k === 'gas') {
-    const bands = tier.k === 'gas';
+  /* A world with air. The giveaway is the bright limb: the airglow ring has to
+     sit OUTSIDE the disc, so its gradient stops are measured against an element
+     wider than the sphere — inside it, the ring hides behind the planet and you
+     get nothing. Land is several overlapping irregular blobs per mass in varied
+     tints, because single ovals read as polka dots. */
+  if (tier.k === 'world') {
+    const sph = size * 0.8;
+    const land = [
+      [10, 26, 30, 22, '62% 38% 47% 53% / 55% 61% 39% 45%', b, 1, -12],
+      [20, 38, 22, 17, '44% 56% 63% 37% / 51% 42% 58% 49%', '#3f6212', 0.9, 8],
+      [26, 20, 16, 12, '55% 45% 40% 60% / 60% 45% 55% 40%', '#0f766e', 0.85, 20],
+      [46, 14, 26, 19, '48% 52% 58% 42% / 62% 38% 62% 38%', b, 0.95, 14],
+      [60, 24, 15, 13, '60% 40% 52% 48% / 44% 56% 44% 56%', '#3f6212', 0.8, -18],
+      [52, 48, 30, 26, '57% 43% 38% 62% / 44% 58% 42% 56%', b, 1, 6],
+      [62, 62, 17, 14, '46% 54% 60% 40% / 58% 42% 55% 45%', '#0f766e', 0.9, -10],
+      [16, 62, 24, 19, '52% 48% 44% 56% / 61% 39% 57% 43%', b, 0.92, 16],
+      [30, 72, 14, 11, '58% 42% 50% 50% / 45% 55% 48% 52%', '#3f6212', 0.75, -6],
+    ];
+    const cap = (edge, h, o) => ({
+      position: 'absolute', left: '-6%', [edge]: `-${edge === 'top' ? 8 : 9}%`,
+      width: '112%', height: `${h}%`, borderRadius: '50%',
+      background: '#f8fdff', opacity: o, filter: `blur(${edge === 'top' ? 3 : 3.5}px)`,
+    });
     return (
       <div className="ac-body" style={s}>
-        {bands && (
-          <div className="ac-ring" style={{
-            width: size * 1.28, height: size * 0.36, borderColor: `${a}88`, transform: 'rotate(-16deg)',
+        <div style={{
+          position: 'absolute', width: sph * 1.30, height: sph * 1.30, borderRadius: '50%',
+          background: `radial-gradient(circle, transparent 74%, ${a}66 80%, ${a}22 86%, transparent 94%)`,
+          filter: 'blur(1.5px)',
+        }} />
+        <div style={{
+          position: 'relative', width: sph, height: sph, borderRadius: '50%', overflow: 'hidden',
+          background: `radial-gradient(circle at 32% 26%, ${a}, #0284c7 46%, #083c5e 94%)`,
+        }}>
+          {land.map(([l, t, w, h, r, col, op, rot], i) => (
+            <div key={i} style={{
+              position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
+              background: col, borderRadius: r, transform: `rotate(${rot}deg)`,
+              filter: 'blur(1.6px)', opacity: op,
+            }} />
+          ))}
+          <div style={cap('top', 14, 0.8)} />
+          <div style={cap('bottom', 15, 0.72)} />
+          <div className="ac-slowspin" style={{ position: 'absolute', left: '-25%', top: '-25%', width: '150%', height: '150%' }}>
+            {[[16, 35, 54, 10, 0.4, 4], [38, 57, 38, 8, 0.32, 4], [45, 23, 24, 6, 0.28, 3]].map(([l, t, w, h, o, bl], i) => (
+              <div key={i} style={{
+                position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
+                borderRadius: '50%', background: '#fff', opacity: o, filter: `blur(${bl}px)`,
+              }} />
+            ))}
+          </div>
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            background: 'radial-gradient(circle at 31% 25%, transparent 46%, rgba(1,6,20,.55) 100%)',
           }} />
-        )}
+          <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', boxShadow: `inset 0 0 ${sph * 0.07}px ${a}bb` }} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Neptune-class: banded, but softly — bold stripes are the gas giant's job,
+     and these two sit two stages apart. The Great Dark Spot and the methane
+     cloud streaks are what carry it. */
+  if (tier.k === 'ice') {
+    const sph = size * 0.8;
+    return (
+      <div className="ac-body" style={s}>
+        <div style={{
+          position: 'absolute', width: sph * 1.28, height: sph * 1.28, borderRadius: '50%',
+          background: `radial-gradient(circle, transparent 74%, ${a}4d 80%, ${a}1a 87%, transparent 94%)`,
+          filter: 'blur(1.5px)',
+        }} />
+        <div style={{
+          position: 'relative', width: sph, height: sph, borderRadius: '50%', overflow: 'hidden',
+          background: `radial-gradient(circle at 34% 26%, #38bdf8, ${b} 62%, #062f4f 92%)`,
+        }}>
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'repeating-linear-gradient(176deg, #ffffff0c 0 10%, transparent 10% 17%, #04263f1c 17% 26%)',
+          }} />
+          <div style={{
+            position: 'absolute', left: '16%', top: '30%', width: '34%', height: '20%', borderRadius: '50%',
+            background: '#03203a', opacity: 0.72, filter: 'blur(2.5px)',
+          }} />
+          <div style={{
+            position: 'absolute', left: '22%', top: '34%', width: '20%', height: '10%', borderRadius: '50%',
+            background: '#01162b', opacity: 0.6, filter: 'blur(2px)',
+          }} />
+          {[[44, 56, 48, 6, 0.32], [22, 69, 34, 5, 0.22], [54, 25, 30, 4, 0.26]].map(([l, t, w, h, o], i) => (
+            <div key={i} style={{
+              position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
+              borderRadius: '50%', background: '#eaf8ff', opacity: o, filter: 'blur(3.5px)',
+            }} />
+          ))}
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            background: 'radial-gradient(circle at 33% 25%, transparent 46%, rgba(1,10,24,.58) 100%)',
+          }} />
+          <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', boxShadow: `inset 0 0 ${sph * 0.09}px ${a}aa` }} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Gas giant and Brown dwarf. 'planet' used to share this branch; both tiers
+     that used it now draw themselves, so the bands are unconditional. */
+  if (tier.k === 'gas') {
+    return (
+      <div className="ac-body" style={s}>
+        <div className="ac-ring" style={{
+          width: size * 1.28, height: size * 0.36, borderColor: `${a}88`, transform: 'rotate(-16deg)',
+        }} />
         <div style={{
           width: size * 0.8, height: size * 0.8, borderRadius: '50%', overflow: 'hidden',
-          background: bands
-            ? `repeating-linear-gradient(172deg, ${a} 0 7%, ${b} 7% 13%, ${a}cc 13% 17%)`
-            : `radial-gradient(circle at 34% 28%, ${a}, ${b} 76%)`,
+          background: `repeating-linear-gradient(172deg, ${a} 0 7%, ${b} 7% 13%, ${a}cc 13% 17%)`,
           boxShadow: `inset -${size * 0.09}px -${size * 0.05}px ${size * 0.16}px rgba(0,0,0,.65), 0 0 ${size * 0.28}px ${b}55`,
         }} />
       </div>
