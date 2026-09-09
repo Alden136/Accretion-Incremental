@@ -98,7 +98,7 @@ const TIERS = [
   { n: 'Planetesimal',       at: 1e17,    k: 'rock',    c: ['#a8a29e', '#3f3f46'], d: 'Fifty kilometres. The seed of a world.' },
   { n: 'Metal asteroid',     at: 2.29e19, k: 'rock',    c: ['#cbd5e1', '#475569'], d: '16 Psyche: iron and nickel, possibly a stripped planetary core.' },
   { n: 'Asteroid',           at: 2.59e20, k: 'rock',    c: ['#b45309', '#451a03'], d: 'Vesta-class: melted, layered, and 4.5 billion years old.' },
-  { n: 'Dwarf planet',       at: 1.31e22, k: 'planet',  c: ['#fbbf24', '#78350f'], d: 'Pluto-class. Round under its own gravity at last.' },
+  { n: 'Dwarf planet',       at: 1.31e22, k: 'dwarf',   c: ['#e8c493', '#6b3f1f'], d: 'Pluto-class. Round under its own gravity at last.' },
   { n: 'Terrestrial planet', at: EARTH,   k: 'planet',  c: ['#38bdf8', '#047857'], d: 'One Earth mass. Enough pull to keep an atmosphere.' },
   { n: 'Ice giant',          at: 1.02e26, k: 'planet',  c: ['#67e8f9', '#0e7490'], d: 'Neptune-class. Supersonic winds over a mantle of hot ice.' },
   { n: 'Gas giant',          at: 1.90e27, k: 'gas',     c: ['#fcd34d', '#b45309'], d: 'Jupiter-class. Hydrogen turns metallic in the core.' },
@@ -336,7 +336,7 @@ const SFX = (() => {
       } else if (kind === 'rock') {
         noise({ dur: 0.07, gain: 0.1, freq: 540 * d * j, q: 1.4 });
         tone(124 * d * j, { type: 'sine', dur: 0.1, gain: 0.14, glide: 82 * d });
-      } else if (kind === 'planet' || kind === 'gas') {
+      } else if (kind === 'planet' || kind === 'gas' || kind === 'dwarf') {
         tone(196 * d * j, { type: 'sine', dur: 0.18, gain: 0.16, glide: 152 * d });
         noise({ dur: 0.13, gain: 0.035, freq: 900, type: 'lowpass' });
       } else if (kind === 'star') {
@@ -565,6 +565,51 @@ function Body({ tier, size }) {
           <div className="ac-crater" style={{ left: '26%', top: '30%', width: size * 0.14, height: size * 0.14 }} />
           <div className="ac-crater" style={{ left: '58%', top: '20%', width: size * 0.08, height: size * 0.08 }} />
           <div className="ac-crater" style={{ left: '46%', top: '58%', width: size * 0.19, height: size * 0.19 }} />
+        </div>
+      </div>
+    );
+  }
+
+  /* A dwarf planet is drawn as a binary, because that is the interesting thing
+     about a Pluto-class body: Charon is big enough that the pair turns about a
+     barycentre out in the open between them rather than a point inside the
+     primary. Both hang off one slow rotation about that empty centre. Charon's
+     greys are literal rather than from tier.c, which only carries two colours
+     and both of those belong to the primary. */
+  if (tier.k === 'dwarf') {
+    // The rotation centre is the barycentre, so the primary's offset has to
+    // exceed its own radius or the pair is just a planet with a close moon.
+    // pl/2 = 0.20 size against a 0.25 size offset puts it a quarter of a radius
+    // clear of Pluto's surface, which is about where the real one sits.
+    const pl = size * 0.40, ch = size * 0.21;
+    // limb darkening: lit from the upper left, falling to shadow at the edge
+    const shade = (x, y, lit) =>
+      `radial-gradient(circle at ${x}% ${y}%, transparent ${lit}%, rgba(8,4,2,.6) 92%)`;
+    return (
+      <div className="ac-body" style={s}>
+        <div className="ac-slowspin" style={{ position: 'absolute', inset: 0 }}>
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%', width: pl, height: pl,
+            margin: `${-pl / 2}px 0 0 ${-pl / 2}px`, transform: `translateX(${-size * 0.25}px)`,
+            borderRadius: '50%', overflow: 'hidden',
+            background: `radial-gradient(circle at 34% 28%, ${a}, ${b} 80%)`,
+            boxShadow: `0 0 ${size * 0.18}px ${b}66`,
+          }}>
+            <div style={{
+              position: 'absolute', left: '20%', top: '54%', width: '52%', height: '24%',
+              borderRadius: '50%', background: '#3d241344', filter: 'blur(4px)',
+            }} />
+            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: shade(33, 27, 36) }} />
+          </div>
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%', width: ch, height: ch,
+            margin: `${-ch / 2}px 0 0 ${-ch / 2}px`, transform: `translateX(${size * 0.375}px)`,
+            borderRadius: '50%', overflow: 'hidden',
+            background: 'radial-gradient(circle at 36% 30%, #d3dae1, #474d55 82%)',
+            boxShadow: `0 0 ${size * 0.09}px #474d5588`,
+          }}>
+            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: shade(35, 29, 32) }} />
+          </div>
         </div>
       </div>
     );
