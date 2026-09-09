@@ -102,7 +102,7 @@ const TIERS = [
   { n: 'Terrestrial planet', at: EARTH,   k: 'world',   c: ['#38bdf8', '#047857'], d: 'One Earth mass. Enough pull to keep an atmosphere.' },
   { n: 'Ice giant',          at: 1.02e26, k: 'ice',     c: ['#7dd3fc', '#075985'], d: 'Neptune-class. Supersonic winds over a mantle of hot ice.' },
   { n: 'Gas giant',          at: 1.90e27, k: 'gas',     c: ['#fcd34d', '#b45309'], d: 'Jupiter-class. Hydrogen turns metallic in the core.' },
-  { n: 'Brown dwarf',        at: 2.5e28,  k: 'gas',     c: ['#fb923c', '#7c2d12'], d: 'Thirteen Jupiters. Fuses deuterium, and little else.' },
+  { n: 'Brown dwarf',        at: 2.5e28,  k: 'ember',   c: ['#fb923c', '#7c2d12'], d: 'Thirteen Jupiters. Fuses deuterium, and little else.' },
   { n: 'Red dwarf',          at: 1.6e29,  k: 'star',    c: ['#f87171', '#7f1d1d'], d: 'Fully convective and frugal. Good for a trillion years.' },
   { n: 'Sun-like star',      at: SUN,     k: 'star',    c: ['#fde68a', '#f59e0b'], d: 'One solar mass, burning hydrogen on the main sequence.' },
   { n: 'Neutron star',       at: 4.1e30,  k: 'neutron', c: ['#e0f2fe', '#38bdf8'], d: 'PSR J0740+6620: two solar masses packed into twenty kilometres.' },
@@ -336,7 +336,7 @@ const SFX = (() => {
       } else if (kind === 'rock') {
         noise({ dur: 0.07, gain: 0.1, freq: 540 * d * j, q: 1.4 });
         tone(124 * d * j, { type: 'sine', dur: 0.1, gain: 0.14, glide: 82 * d });
-      } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf') {
+      } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf' || kind === 'ember') {
         tone(196 * d * j, { type: 'sine', dur: 0.18, gain: 0.16, glide: 152 * d });
         noise({ dur: 0.13, gain: 0.035, freq: 900, type: 'lowpass' });
       } else if (kind === 'star') {
@@ -720,8 +720,67 @@ function Body({ tier, size }) {
     );
   }
 
-  /* Gas giant and Brown dwarf. 'planet' used to share this branch; both tiers
-     that used it now draw themselves, so the bands are unconditional. */
+  /* A failed star, and the one body on the ladder that is lit from inside.
+     Every planet here uses a gradient offset to the upper left, which is what
+     being lit from outside looks like; centring it and putting the brightest
+     point in the middle is what says this thing glows by itself. Over that go
+     broken iron and silicate cloud bands with the hot interior showing through
+     the gaps, a few soft dark patches so the banding is not pure horizontal
+     stripes, and a dull heat corona where a planet would wear a ring. */
+  if (tier.k === 'ember') {
+    const sph = size * 0.8;
+    const dark = '#2a0f06';
+    // uneven bands with uneven gaps; the alpha varies so no two cloud decks
+    // sit at the same depth
+    const band = `${dark}e6 0 6%, transparent 6% 11%, ${dark}c4 11% 15%, transparent 15% 22%, `
+      + `${dark}ee 22% 28%, transparent 28% 33%, ${dark}b0 33% 37%, transparent 37% 45%, `
+      + `${dark}dd 45% 51%, transparent 51% 56%, ${dark}cc 56% 61%, transparent 61% 69%, `
+      + `${dark}e6 69% 75%, transparent 75% 80%, ${dark}bb 80% 85%, transparent 85% 93%, `
+      + `${dark}d8 93% 100%`;
+    return (
+      <div className="ac-body" style={s}>
+        <div className="ac-corona" style={{
+          width: size * 1.06, height: size * 1.06,
+          background: `radial-gradient(circle, ${a}20 40%, ${b}30 56%, transparent 72%)`,
+        }} />
+        <div style={{
+          position: 'relative', width: sph, height: sph, borderRadius: '50%', overflow: 'hidden',
+          background: `radial-gradient(circle at 50% 50%, #ffe6bd 0%, ${a} 20%, #c2410c 42%, ${b} 68%, #3b1508 100%)`,
+        }}>
+          {[[20, 30, 30, 13, 0.55, 5], [52, 58, 34, 14, 0.44, 5.5], [38, 16, 22, 9, 0.33, 4.5]].map(
+            ([l, t, w, h, o, bl], i) => (
+              <div key={`h${i}`} style={{
+                position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
+                borderRadius: '50%', opacity: o, filter: `blur(${bl}px)`,
+                background: `radial-gradient(circle, #ffd9a0, ${a} 58%, transparent 80%)`,
+              }} />
+            ))}
+          <div style={{
+            position: 'absolute', inset: '-4%', filter: 'blur(3.2px)',
+            background: `repeating-linear-gradient(174deg, ${band})`,
+          }} />
+          {[[-6, 22, 38, 22, 0.5, 7], [62, 44, 42, 26, 0.42, 8], [28, 74, 34, 20, 0.36, 7]].map(
+            ([l, t, w, h, o, bl], i) => (
+              <div key={`m${i}`} style={{
+                position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
+                borderRadius: '50%', background: dark, opacity: o, filter: `blur(${bl}px)`,
+              }} />
+            ))}
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            background: 'radial-gradient(circle at 50% 50%, transparent 64%, rgba(12,3,0,.5) 100%)',
+          }} />
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            boxShadow: `inset 0 0 ${sph * 0.05}px ${a}99, 0 0 ${sph * 0.05}px #00000088`,
+          }} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Gas giant. Brown dwarf used to share this branch and no longer does, so
+     this is the only tier drawing bands and a ring. */
   if (tier.k === 'gas') {
     return (
       <div className="ac-body" style={s}>
