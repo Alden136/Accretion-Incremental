@@ -32,10 +32,13 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
      from 0.31 decades (Sun to neutron star) to 5.0 (pebble to
      boulder), which made one stage bonus x1.09 and another x3.98.
    - Global upgrades are a bounded set of ten, x58 in total.
-   - The pull track is bounded too: ten levels, each +1.5% of a
-     second's output, and then it is done. It used to double a flat
-     kg figure against a cost growing 8x, so it was dead weight by
-     the third level while still asking to be bought.
+   - The pull track is bounded too, but it is priced to run the whole
+     ladder: 36 levels, each +0.5% of a second's output, the last one
+     costing about what the last global upgrade costs. It used to
+     double a flat kg figure against a cost growing 8x, so it was dead
+     weight by the third level while still asking to be bought; then it
+     was ten levels at 8x, which finished two minutes into an eight-hour
+     run and read "Maxed" for the other seven and a half hours.
    - Offline is capped per hour away, not by one flat fraction of a
      stage. Flat, the cap bound about half an hour in, so hours two
      through eight of any absence earned nothing while the game still
@@ -58,8 +61,10 @@ const BALANCE = {
   gapMin: 1.2,        // both bonuses read the gap to the next stage clamped to
   gapMax: 3.0,        // this range, so neither a 0.31- nor a 5.0-decade step rules
   tapShare: 0.1,      // fraction of a second's output per tap
-  tapStep: 0.015,     // each pull upgrade adds this much to that fraction
-  tapLevels: 10,      // ...and the track stops there
+  tapStep: 0.005,     // each pull upgrade adds this much to that fraction
+  tapLevels: 36,      // over a track that spans the ladder, not the first minute
+  tapBase: 1e-25,     // first pull upgrade costs this...
+  tapGrowth: 150,     // ...and each one after it costs this much more again
   offlineRate: 0.5,
   offlineCapH: 8,
   shardRate: 2,
@@ -364,7 +369,7 @@ const SFX = (() => {
        two-note accretor purchase and the four-note upgrade run.
        Pitch climbs with level, so stacking it sounds like stacking. */
     tapUp(level = 0) {
-      const step = 1 + 0.05 * Math.min(level, 10);
+      const step = 1 + 0.5 * Math.min(level, BALANCE.tapLevels) / BALANCE.tapLevels;
       noise({ dur: 0.26, gain: 0.085, freq: 260 * step, q: 5.5, sweep: 3400 * step });
       tone(150 * step, { type: 'sine', dur: 0.2, gain: 0.13, glide: 300 * step, attack: 0.01 });
       tone(600 * step, { type: 'sine', dur: 0.1, gain: 0.03, delay: 0.19 });
@@ -405,8 +410,13 @@ const offlineRate = (s) => (s.perks[1] ? 0.8 : BALANCE.offlineRate);
 const offlineShare = (s) => (s.perks[1] ? BALANCE.offlineShareDeep : BALANCE.offlineShare);
 /* A pull is worth a share of a second's output — the only scale-free way
    to price it, since the ladder spans 78 decades. The upgrade moves that
-   share, and stops after tapLevels; the flat term only matters in the
-   first few seconds of a run, before anything is producing. */
+   share over tapLevels purchases; the flat term only matters in the first
+   few seconds of a run, before anything is producing.
+   The track is priced to last: at 8x a level it finished two minutes into
+   an eight-hour run and then read "Maxed" for the rest of it, spanning
+   eight of the ladder's eighty decades. At 150x the last level costs
+   1.5e51 kg — about what the last global upgrade costs — so a level lands
+   roughly once a stage all the way to the end. */
 const tapShare = (s) =>
   (s.perks[2] ? 0.25 : BALANCE.tapShare) +
   BALANCE.tapStep * Math.min(s.tap, BALANCE.tapLevels);
@@ -466,7 +476,7 @@ const genMax = (i, count, mass) => {
   const base = GENS[i].cost * Math.pow(r, count);
   return Math.max(0, Math.floor(Math.log(1 + (mass * (r - 1)) / base) / Math.log(r)));
 };
-const tapCost = (s) => 1e-25 * Math.pow(8, s.tap);
+const tapCost = (s) => BALANCE.tapBase * Math.pow(BALANCE.tapGrowth, s.tap);
 const tapMaxed = (s) => s.tap >= BALANCE.tapLevels;
 const shardsFrom = (mass) =>
   Math.floor(BALANCE.shardRate * Math.pow(Math.max(mass, 1) / TIERS[PRESTIGE_AT].at, BALANCE.shardPower));
