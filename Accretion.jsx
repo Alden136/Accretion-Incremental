@@ -3,75 +3,49 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 /* ============================================================
    ACCRETION — an incremental game about mass
 
-   Economy notes (every figure below is simulated before shipping):
+   Economy notes (simulated before shipping):
+   - Every accretor pays for itself in 20s at level 1.
    - Cost grows 1.15x per level; production milestones give x3.4
      every 10 levels. Cost wins slightly (payback +1.75%/level),
      so no accretor can run away on its own.
+   - Unlocking the next accretor is worth ~4x the value of your
+     current one. That burst is the whole progression rhythm.
+   - Stage bonuses are ONE-TIME mass grants, never permanent
+     production multipliers. Permanent multipliers that scale
+     with progress are what break an economy like this.
+   - Global upgrades are a bounded set of seven, x17 in total.
    - Accretors sit every ~2.3 stages instead of every ~5 decades.
      The old spacing let one accretor (Fusion Core) span eight
      stages, so the whole planet-to-star run had no pacing control.
    - Each accretor carries its own yield, solved numerically against
-     the pacing target below. Payback rises monotonically down the
-     ladder — 7s for the foam sifter to ~3h for the horizon harvest.
-     A yield that dips (the old Horizon trawler paid back in 91s,
-     faster than five cheaper accretors) makes the late game
-     re-accelerate instead of settling.
+     the local density of the mass ladder. Stages sit ~4 decades
+     apart early and ~1 decade apart from planet to star, so a flat
+     yield makes the late ladder blur past.
    - Act two (galaxy onward) exists because one black hole cannot
      grow past ~5e10 solar masses; above that its disk fragments
      into stars. So the ladder becomes bound structure instead.
-   - Stage bonuses are ONE-TIME mass grants, never permanent
-     production multipliers. Production is the only source of mass,
-     and every price is denominated in mass, so a permanent global
-     multiplier of x divides the whole run length by exactly x.
-     That is why the shard bonus is capped (see shardCap): at the
-     old +15%/shard, one collapse ended the game in four minutes.
+   - Shard perks are bounded and none of them compound with mass.
+   - Pacing target is a geometric ramp, ~35s for the first stage to
+     ~330s for the last, and late accretors carry weaker milestones
+     so the final stretch turns sub-exponential.
    - Stage bonus and offline windfall are fractions of the gap to
      the NEXT stage, never fixed multipliers: a fixed x1.4 was 4% of
-     an early gap and 47% of the Sun-to-neutron-star gap. The gap is
-     read clamped to [1.2, 3.0] decades, because the raw ladder runs
-     from 0.31 decades (Sun to neutron star) to 5.0 (pebble to
-     boulder), which made one stage bonus x1.09 and another x3.98.
-   - Global upgrades are a bounded set of ten, x58 in total.
-   - The pull track is bounded too, but it is priced to run the whole
-     ladder: 36 levels, each +0.5% of a second's output, the last one
-     costing about what the last global upgrade costs. It used to
-     double a flat kg figure against a cost growing 8x, so it was dead
-     weight by the third level while still asking to be bought; then it
-     was ten levels at 8x, which finished two minutes into an eight-hour
-     run and read "Maxed" for the other seven and a half hours.
-   - Offline is capped per hour away, not by one flat fraction of a
-     stage. Flat, the cap bound about half an hour in, so hours two
-     through eight of any absence earned nothing while the game still
-     advertised an eight-hour window. Eight hours is now ~1.5 stages.
-   - Pacing target is a geometric ramp, ~35s for the first stage to
-     ~53 min for the last. The ramp carries the length: the opening
-     stays as quick as it ever was and the back half does the work,
-     because a run this long cannot afford a slow first minute.
-   Simulated result: ~1 min/stage in the rock era, ~7 min planets-to-
-   stars, ~18 min black holes, ~34 min galaxies-to-universe; ~8 h
-   first run, settling to ~2.7 h once the shard cap is reached.
+     an early gap and 47% of the Sun-to-neutron-star gap.
+   Result: ~52s/stage in the rock era, ~113s planets-to-stars,
+   ~200s black holes, ~250s galaxies-to-universe; ~90 min first run.
    ============================================================ */
 
 const BALANCE = {
   costGrowth: 1.15,
   milestoneEvery: 10,
   stageShare: 0.12,   // stage bonus = this fraction of the way to the NEXT stage
-  offlineShare: 0.19, // offline cap, in gaps-to-the-next-stage, PER HOUR away
-  offlineShareDeep: 0.28, // ...and with the Deep time perk
-  gapMin: 1.2,        // both bonuses read the gap to the next stage clamped to
-  gapMax: 3.0,        // this range, so neither a 0.31- nor a 5.0-decade step rules
+  offlineShare: 0.40, // offline earnings can never carry you past this fraction
   tapShare: 0.1,      // fraction of a second's output per tap
-  tapStep: 0.005,     // each pull upgrade adds this much to that fraction
-  tapLevels: 36,      // over a track that spans the ladder, not the first minute
-  tapBase: 1e-25,     // first pull upgrade costs this...
-  tapGrowth: 150,     // ...and each one after it costs this much more again
   offlineRate: 0.5,
   offlineCapH: 8,
   shardRate: 2,
   shardPower: 0.07,
-  shardValue: 0.06,   // shape of the shard production bonus
-  shardCap: 3,        // ...which can never exceed this. See the note above:
-                      // an uncapped multiplier is a direct divisor on run length.
+  shardValue: 0.15,   // +15% production per shard ever earned
 };
 
 const ATOM = 1.67e-27;
@@ -98,27 +72,21 @@ const TIERS = [
   { n: 'Planetesimal',       at: 1e17,    k: 'rock',    c: ['#a8a29e', '#3f3f46'], d: 'Fifty kilometres. The seed of a world.' },
   { n: 'Metal asteroid',     at: 2.29e19, k: 'rock',    c: ['#cbd5e1', '#475569'], d: '16 Psyche: iron and nickel, possibly a stripped planetary core.' },
   { n: 'Asteroid',           at: 2.59e20, k: 'rock',    c: ['#b45309', '#451a03'], d: 'Vesta-class: melted, layered, and 4.5 billion years old.' },
-  { n: 'Dwarf planet',       at: 1.31e22, k: 'dwarf',   c: ['#e8c493', '#6b3f1f'], d: 'Pluto-class. Round under its own gravity at last.' },
-  { n: 'Terrestrial planet', at: EARTH,   k: 'world',   c: ['#38bdf8', '#047857'], d: 'One Earth mass. Enough pull to keep an atmosphere.' },
-  { n: 'Ice giant',          at: 1.02e26, k: 'ice',     c: ['#7dd3fc', '#075985'], d: 'Neptune-class. Supersonic winds over a mantle of hot ice.' },
+  { n: 'Dwarf planet',       at: 1.31e22, k: 'planet',  c: ['#fbbf24', '#78350f'], d: 'Pluto-class. Round under its own gravity at last.' },
+  { n: 'Terrestrial planet', at: EARTH,   k: 'planet',  c: ['#38bdf8', '#047857'], d: 'One Earth mass. Enough pull to keep an atmosphere.' },
+  { n: 'Ice giant',          at: 1.02e26, k: 'planet',  c: ['#67e8f9', '#0e7490'], d: 'Neptune-class. Supersonic winds over a mantle of hot ice.' },
   { n: 'Gas giant',          at: 1.90e27, k: 'gas',     c: ['#fcd34d', '#b45309'], d: 'Jupiter-class. Hydrogen turns metallic in the core.' },
-  { n: 'Brown dwarf',        at: 2.5e28,  k: 'ember',   c: ['#fb923c', '#7c2d12'], d: 'Thirteen Jupiters. Fuses deuterium, and little else.' },
+  { n: 'Brown dwarf',        at: 2.5e28,  k: 'gas',     c: ['#fb923c', '#7c2d12'], d: 'Thirteen Jupiters. Fuses deuterium, and little else.' },
   { n: 'Red dwarf',          at: 1.6e29,  k: 'star',    c: ['#f87171', '#7f1d1d'], d: 'Fully convective and frugal. Good for a trillion years.' },
   { n: 'Sun-like star',      at: SUN,     k: 'star',    c: ['#fde68a', '#f59e0b'], d: 'One solar mass, burning hydrogen on the main sequence.' },
   { n: 'Neutron star',       at: 4.1e30,  k: 'neutron', c: ['#e0f2fe', '#38bdf8'], d: 'PSR J0740+6620: two solar masses packed into twenty kilometres.' },
   { n: 'Blue supergiant',    at: 4e31,    k: 'star',    c: ['#bfdbfe', '#2563eb'], d: 'Twenty solar masses, spent in ten million years.' },
-  { n: 'Stellar black hole', at: 2e32,    k: 'hole',    c: ['#a78bfa', '#1e1b4b'], d: 'The core lost its argument with gravity.',
-    h: { r: 0.34, disk: 0.78, dh: 0.30, spin: 2.0, ring: 0.35, glow: 0.8, feed: 'companion' } },
-  { n: 'Intermediate hole',  at: 2e33,    k: 'hole',    c: ['#c084fc', '#2e1065'], d: 'A thousand suns. Rare, and mostly still hypothetical.',
-    h: { r: 0.42, disk: 0.88, dh: 0.34, spin: 2.8, ring: 0.5, feed: 'cluster' } },
-  { n: 'Seed hole',          at: 1e35,    k: 'hole',    c: ['#d8b4fe', '#3b0764'], d: 'Half a million suns, waiting for a galaxy to form around it.',
-    h: { r: 0.48, disk: 0.72, dh: 0.50, diskOp: 0.4, spin: 6.5, ring: 0.5, glow: 0.7, feed: 'dust' } },
-  { n: 'Supermassive hole',  at: 8.5e36,  k: 'hole',    c: ['#f0abfc', '#4a044e'], d: 'Sagittarius A*, anchoring everything you can see.',
-    h: { r: 0.52, disk: 1.05, dh: 0.40, spin: 4.2, ring: 0.7, feed: 'orbits' } },
-  { n: 'Quasar engine',      at: 1e39,    k: 'hole',    c: ['#f5d0fe', '#701a75'], d: 'Feeding hard enough to outshine its host galaxy.',
-    h: { r: 0.44, disk: 1.02, dh: 0.30, diskOp: 1, spin: 1.5, ring: 0.6, glow: 1.4, jet: 1 } },
-  { n: 'Ultramassive hole',  at: 1.3e41,  k: 'hole',    c: ['#fbcfe8', '#f472b6'], d: 'TON 618. Sixty-six billion suns — near the ceiling for any one hole.',
-    h: { r: 0.70, disk: 1.30, dh: 0.30, diskOp: 0.55, spin: 9.0, ring: 1.0, glow: 0.9 } },
+  { n: 'Stellar black hole', at: 2e32,    k: 'hole',    c: ['#a78bfa', '#1e1b4b'], d: 'The core lost its argument with gravity.' },
+  { n: 'Intermediate hole',  at: 2e33,    k: 'hole',    c: ['#c084fc', '#2e1065'], d: 'A thousand suns. Rare, and mostly still hypothetical.' },
+  { n: 'Seed hole',          at: 1e35,    k: 'hole',    c: ['#d8b4fe', '#3b0764'], d: 'Half a million suns, waiting for a galaxy to form around it.' },
+  { n: 'Supermassive hole',  at: 8.5e36,  k: 'hole',    c: ['#f0abfc', '#4a044e'], d: 'Sagittarius A*, anchoring everything you can see.' },
+  { n: 'Quasar engine',      at: 1e39,    k: 'hole',    c: ['#f5d0fe', '#701a75'], d: 'Feeding hard enough to outshine its host galaxy.' },
+  { n: 'Ultramassive hole',  at: 1.3e41,  k: 'hole',    c: ['#fbcfe8', '#f472b6'], d: 'TON 618. Sixty-six billion suns — near the ceiling for any one hole.' },
 
   /* Act two. A single black hole cannot grow much past TON 618: above
      roughly 5e10 solar masses the accretion disk fragments into stars
@@ -139,32 +107,29 @@ const PRESTIGE_AT = 29;
 
 /* Accretors are spaced to sit every ~2.3 stages rather than every ~5
    decades, so no single unlock spans a whole run of stages. Each one
-   carries its own yield, solved numerically against the pacing target
-   in the header. Two rules hold the solution together: yields fall
-   monotonically down the ladder (so payback only ever grows, and the
-   late game settles instead of re-accelerating), and every accretor
-   is reachable — the last one used to cost 1e52 for a 2500s payback,
-   which no run ever got far enough to want. */
+   carries its own yield, solved against the local density of the mass
+   ladder: where stages sit ~1 decade apart (planet through star) the
+   yield is low so those stages don't blur past. */
 const GENS = [
-  { n: 'Quantum foam sifter',   d: 'Skims virtual pairs out of empty space',   cost: 1e-26, y: 0.15, m: 3.4, c: '#93c5fd' },
-  { n: 'Molecular binder',      d: 'Chemistry, run at a profit',               cost: 1e-19, y: 0.049, m: 3.4, c: '#a5b4fc' },
-  { n: 'Dust accreter',         d: 'Sweeps grains from a cold nebula',         cost: 1e-11, y: 0.049, m: 3.4, c: '#cbd5e1' },
-  { n: 'Electrostatic clumper', d: 'Static charge welds dust into gravel',     cost: 1e-2,  y: 0.01, m: 3.4, c: '#d6d3d1' },
-  { n: 'Gravity well',          d: 'Mass finally starts attracting mass',      cost: 1e6,   y: 0.005, m: 3.4, c: '#fbbf24' },
-  { n: 'Runaway accreter',      d: 'The biggest body eats fastest',            cost: 1e11,  y: 0.0028, m: 3.4, c: '#f59e0b' },
-  { n: 'Orbital dredge',        d: 'Clears the neighbourhood, permanently',    cost: 1e16,  y: 0.00036, m: 3.4, c: '#f97316' },
-  { n: 'Planetary sweeper',     d: 'Bends whole orbits into your path',        cost: 1e20,  y: 0.00016, m: 3.4, c: '#38bdf8' },
-  { n: 'Atmosphere harvester',  d: 'Strips hydrogen and helium from the disk', cost: 1e25,  y: 0.00016, m: 3.4, c: '#67e8f9' },
-  { n: 'Stellar nursery',       d: 'Collapses a molecular cloud on demand',    cost: 1e28,  y: 0.00016, m: 3.4, c: '#fb923c' },
-  { n: 'Fusion core',           d: 'Burns hydrogen and hoards the ash',        cost: 1e30,  y: 0.00016, m: 3.25, c: '#fde68a' },
-  { n: 'Degenerate press',      d: 'Packs matter past what electrons allow',   cost: 1e32,  y: 0.00016, m: 3.15, c: '#e0f2fe' },
-  { n: 'Accretion disk',        d: 'Infall at a tenth of light speed',         cost: 1e34,  y: 0.00016, m: 3.05, c: '#c084fc' },
-  { n: 'Horizon trawler',       d: 'Swallows star systems whole',              cost: 1e38,  y: 0.00015, m: 2.95, c: '#f0abfc' },
-  { n: 'Merger cascade',        d: 'Two holes become one, over and over',      cost: 1e41,  y: 9.8e-05, m: 2.9, c: '#f472b6' },
-  { n: 'Halo assembler',        d: 'Binds dark matter into a halo around you', cost: 1e44,  y: 5.9e-05, m: 2.85, c: '#818cf8' },
-  { n: 'Cluster infall',        d: 'Whole galaxies arrive on radial orbits',   cost: 1e47,  y: 3.1e-05, m: 2.8, c: '#c4b5fd' },
-  { n: 'Filament siphon',       d: 'Draws matter down the cosmic web',         cost: 5e49,  y: 1.1e-05, m: 2.75, c: '#5eead4' },
-  { n: 'Horizon harvest',       d: 'Gathers everything light can still reach', cost: 1e52,  y: 1.1e-05, m: 2.7, c: '#ffffff' },
+  { n: 'Quantum foam sifter',   d: 'Skims virtual pairs out of empty space',   cost: 1e-26, y: 0.153, m: 3.4, c: '#93c5fd' },
+  { n: 'Molecular binder',      d: 'Chemistry, run at a profit',               cost: 1e-19, y: 0.083, m: 3.4, c: '#a5b4fc' },
+  { n: 'Dust accreter',         d: 'Sweeps grains from a cold nebula',         cost: 1e-11, y: 0.11, m: 3.4, c: '#cbd5e1' },
+  { n: 'Electrostatic clumper', d: 'Static charge welds dust into gravel',     cost: 1e-2,  y: 0.05, m: 3.4, c: '#d6d3d1' },
+  { n: 'Gravity well',          d: 'Mass finally starts attracting mass',      cost: 1e6,   y: 0.043, m: 3.4, c: '#fbbf24' },
+  { n: 'Runaway accreter',      d: 'The biggest body eats fastest',            cost: 1e11,  y: 0.025, m: 3.4, c: '#f59e0b' },
+  { n: 'Orbital dredge',        d: 'Clears the neighbourhood, permanently',    cost: 1e16,  y: 0.0085, m: 3.4, c: '#f97316' },
+  { n: 'Planetary sweeper',     d: 'Bends whole orbits into your path',        cost: 1e20,  y: 0.0028, m: 3.4, c: '#38bdf8' },
+  { n: 'Atmosphere harvester',  d: 'Strips hydrogen and helium from the disk', cost: 1e25,  y: 0.001, m: 3.4, c: '#67e8f9' },
+  { n: 'Stellar nursery',       d: 'Collapses a molecular cloud on demand',    cost: 1e28,  y: 0.0025, m: 3.4, c: '#fb923c' },
+  { n: 'Fusion core',           d: 'Burns hydrogen and hoards the ash',        cost: 1e30,  y: 0.00098, m: 3.25, c: '#fde68a' },
+  { n: 'Degenerate press',      d: 'Packs matter past what electrons allow',   cost: 1e32,  y: 0.0019, m: 3.15, c: '#e0f2fe' },
+  { n: 'Accretion disk',        d: 'Infall at a tenth of light speed',         cost: 1e34,  y: 0.0049, m: 3.05, c: '#c084fc' },
+  { n: 'Horizon trawler',       d: 'Swallows star systems whole',              cost: 1e38,  y: 0.011, m: 2.95, c: '#f0abfc' },
+  { n: 'Merger cascade',        d: 'Two holes become one, over and over',      cost: 1e41,  y: 0.0036, m: 2.9, c: '#f472b6' },
+  { n: 'Halo assembler',        d: 'Binds dark matter into a halo around you', cost: 1e44,  y: 0.0012, m: 2.85, c: '#818cf8' },
+  { n: 'Cluster infall',        d: 'Whole galaxies arrive on radial orbits',   cost: 1e47,  y: 0.003, m: 2.8, c: '#c4b5fd' },
+  { n: 'Filament siphon',       d: 'Draws matter down the cosmic web',         cost: 5e49,  y: 0.001, m: 2.75, c: '#5eead4' },
+  { n: 'Horizon harvest',       d: 'Gathers everything light can still reach', cost: 1e52,  y: 0.0004, m: 2.7, c: '#ffffff' },
 ];
 GENS.forEach((g) => { g.prod = g.cost * g.y; });
 
@@ -182,17 +147,13 @@ const UPGRADES = [
   { n: 'Comoving capture',       d: 'You outpace the expansion of space itself',  cost: 1e51,  mult: 1.5, c: '#e879f9' },
 ];
 
-/* Spent with collapse shards; bounded, and none of them compound.
-   Priced by simulated strength, not by position in the list: Tidal
-   capture is worth ~30% off a run if you actually tap, Fossil
-   metallicity ~4%, Residual disk ~2%. The old sheet charged 14 and 24
-   the other way round. */
+/* spent with collapse shards; bounded, and none of them compound */
 const SHARD_C = '#f0abfc';
 const PERKS = [
-  { n: 'Residual disk',       d: 'Begin every run with 20 levels of your first two accretors', cost: 4 },
-  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, and caps ~50% later', cost: 8 },
-  { n: 'Tidal capture',       d: 'Pulls draw a quarter-second of output instead of a tenth',   cost: 22 },
-  { n: 'Fossil metallicity',  d: 'Stage bonuses nearly double: 22% of the next gap, not 12%',   cost: 12 },
+  { n: 'Residual disk',       d: 'Raises your first two accretors to at least level 20 now and at the start of each run', cost: 4 },
+  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, up to the cap', cost: 8 },
+  { n: 'Tidal capture',       d: 'Each pull adds 0.25 seconds of production instead of 0.1, plus its base mass',   cost: 14 },
+  { n: 'Fossil metallicity',  d: 'Increases the one-time mass bonus at each new stage; the multiplier depends on the spacing to the following stage',   cost: 24 },
 ];
 
 /* ---------- number formatting ---------- */
@@ -342,7 +303,7 @@ const SFX = (() => {
       } else if (kind === 'rock') {
         noise({ dur: 0.07, gain: 0.1, freq: 540 * d * j, q: 1.4 });
         tone(124 * d * j, { type: 'sine', dur: 0.1, gain: 0.14, glide: 82 * d });
-      } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf' || kind === 'ember') {
+      } else if (kind === 'planet' || kind === 'gas') {
         tone(196 * d * j, { type: 'sine', dur: 0.18, gain: 0.16, glide: 152 * d });
         noise({ dur: 0.13, gain: 0.035, freq: 900, type: 'lowpass' });
       } else if (kind === 'star') {
@@ -375,7 +336,7 @@ const SFX = (() => {
        two-note accretor purchase and the four-note upgrade run.
        Pitch climbs with level, so stacking it sounds like stacking. */
     tapUp(level = 0) {
-      const step = 1 + 0.5 * Math.min(level, BALANCE.tapLevels) / BALANCE.tapLevels;
+      const step = 1 + 0.05 * Math.min(level, 10);
       noise({ dur: 0.26, gain: 0.085, freq: 260 * step, q: 5.5, sweep: 3400 * step });
       tone(150 * step, { type: 'sine', dur: 0.2, gain: 0.13, glide: 300 * step, attack: 0.01 });
       tone(600 * step, { type: 'sine', dur: 0.1, gain: 0.03, delay: 0.19 });
@@ -402,45 +363,18 @@ const newGame = () => ({
   mass: 0, best: 0, stage: 0, gens: GENS.map(() => 0), ups: UPGRADES.map(() => false),
   tap: 0, shards: 0, shardsTotal: 0, perks: PERKS.map(() => false),
   collapses: 0, taps: 0, played: 0, lastSave: Date.now(),
-  sfx: true, hum: false, dev: false,
+  sfx: true, hum: false,
 });
-
-/* Developer mode: everything is free and nothing is hidden, so a build can be
-   walked through end to end without playing eight hours of it. It is a flag on
-   the save, not a build switch, so a dev save stays marked as one — the header
-   shows a DEV badge and it survives a collapse. */
-const devFree = (s) => !!s.dev;
 
 /* perks change these three constants; none of them compound with progress */
 const offlineRate = (s) => (s.perks[1] ? 0.8 : BALANCE.offlineRate);
-const offlineShare = (s) => (s.perks[1] ? BALANCE.offlineShareDeep : BALANCE.offlineShare);
-/* A pull is worth a share of a second's output — the only scale-free way
-   to price it, since the ladder spans 78 decades. The upgrade moves that
-   share over tapLevels purchases; the flat term only matters in the first
-   few seconds of a run, before anything is producing.
-   The track is priced to last: at 8x a level it finished two minutes into
-   an eight-hour run and then read "Maxed" for the rest of it, spanning
-   eight of the ladder's eighty decades. At 150x the last level costs
-   1.5e51 kg — about what the last global upgrade costs — so a level lands
-   roughly once a stage all the way to the end. */
-const tapShare = (s) =>
-  (s.perks[2] ? 0.25 : BALANCE.tapShare) +
-  BALANCE.tapStep * Math.min(s.tap, BALANCE.tapLevels);
+const tapShare = (s) => (s.perks[2] ? 0.25 : BALANCE.tapShare);
 /* Stages sit ~4 decades apart early and ~1 apart late, so any fixed
    multiplier is trivial early and a huge shortcut late. Both bonuses are
-   therefore expressed as a share of the gap to the next stage — clamped,
-   because the raw gap runs from 0.31 decades to 5.0 and the ends of that
-   range give a stage bonus of x1.09 (nothing) and x3.98 (a free stage). */
-const gapAfter = (i) => clamp(
-  i + 1 < TIERS.length ? Math.log10(TIERS[i + 1].at) - Math.log10(TIERS[i].at) : 1,
-  BALANCE.gapMin, BALANCE.gapMax);
+   therefore expressed as a share of the gap to the next stage. */
+const gapAfter = (i) => (i + 1 < TIERS.length ? Math.log10(TIERS[i + 1].at) - Math.log10(TIERS[i].at) : 1);
 const stageBonus = (s, i) => Math.pow(10, (s.perks[3] ? 0.22 : BALANCE.stageShare) * gapAfter(i));
-/* The cap grows with the length of the absence rather than being one flat
-   fraction of a stage. Flat, it bound after ~30 minutes away, so hours two
-   through eight of any absence earned nothing while the UI still advertised
-   an eight-hour window. Eight hours is now worth ~1.5 stages, one hour ~0.2. */
-const offlineCap = (s, hours) =>
-  Math.pow(10, offlineShare(s) * gapAfter(s.stage) * clamp(hours, 0, BALANCE.offlineCapH));
+const offlineCap = (s) => Math.pow(10, BALANCE.offlineShare * gapAfter(s.stage));
 const applyPerks = (s) => {
   if (s.perks[0]) { s.gens[0] = Math.max(s.gens[0], 20); s.gens[1] = Math.max(s.gens[1], 20); }
   return s;
@@ -452,18 +386,9 @@ const stageFor = (best) => {
   return i;
 };
 
-/* Shards saturate towards shardCap and never pass it. Production is the
-   only source of mass and every price is in mass, so the whole run is
-   just time-rescaled by a global multiplier: x5 output is a five-times
-   shorter game, exactly. Unbounded (+15% a shard, x5 after one collapse)
-   that ended the game in four minutes on the second run. */
-const shardMult = (s) => {
-  const c = BALANCE.shardCap;
-  return c - (c - 1) / (1 + BALANCE.shardValue * (s.shardsTotal || 0));
-};
-
 const upMult = (s) =>
-  UPGRADES.reduce((a, u, i) => a * (s.ups[i] ? u.mult : 1), 1) * shardMult(s);
+  UPGRADES.reduce((a, u, i) => a * (s.ups[i] ? u.mult : 1), 1) *
+  (1 + BALANCE.shardValue * (s.shardsTotal || 0));
 
 const genOutput = (s, i) => {
   const c = s.gens[i];
@@ -482,8 +407,7 @@ const genMax = (i, count, mass) => {
   const base = GENS[i].cost * Math.pow(r, count);
   return Math.max(0, Math.floor(Math.log(1 + (mass * (r - 1)) / base) / Math.log(r)));
 };
-const tapCost = (s) => BALANCE.tapBase * Math.pow(BALANCE.tapGrowth, s.tap);
-const tapMaxed = (s) => s.tap >= BALANCE.tapLevels;
+const tapCost = (s) => 1e-25 * Math.pow(8, s.tap);
 const shardsFrom = (mass) =>
   Math.floor(BALANCE.shardRate * Math.pow(Math.max(mass, 1) / TIERS[PRESTIGE_AT].at, BALANCE.shardPower));
 
@@ -498,7 +422,7 @@ const normalize = (v) => {
   s.ups = UPGRADES.map((_, i) => !!v.ups?.[i]);
   s.mass = Math.max(0, Number(s.mass) || 0);
   s.best = Math.max(Number(s.best) || 0, s.mass);
-  s.tap = clamp(Math.floor(Number(s.tap) || 0), 0, BALANCE.tapLevels);
+  s.tap = Math.max(0, Math.floor(Number(s.tap) || 0));
   s.shards = Math.max(0, Math.floor(Number(s.shards) || 0));
   s.shardsTotal = Math.max(Math.floor(Number(v.shardsTotal) || 0), s.shards);
   s.perks = PERKS.map((_, i) => !!v.perks?.[i]);
@@ -507,7 +431,6 @@ const normalize = (v) => {
   s.played = Math.max(0, Number(s.played) || 0);
   s.sfx = v.sfx !== false;
   s.hum = !!v.hum;
-  s.dev = !!v.dev;
   s.stage = stageFor(s.best);
   return s;
 };
@@ -576,226 +499,20 @@ function Body({ tier, size }) {
     );
   }
 
-  /* A dwarf planet is drawn as a binary, because that is the interesting thing
-     about a Pluto-class body: Charon is big enough that the pair turns about a
-     barycentre out in the open between them rather than a point inside the
-     primary. Both hang off one slow rotation about that empty centre. Charon's
-     greys are literal rather than from tier.c, which only carries two colours
-     and both of those belong to the primary. */
-  if (tier.k === 'dwarf') {
-    // The rotation centre is the barycentre, so the primary's offset has to
-    // exceed its own radius or the pair is just a planet with a close moon.
-    // pl/2 = 0.20 size against a 0.25 size offset puts it a quarter of a radius
-    // clear of Pluto's surface, which is about where the real one sits.
-    const pl = size * 0.40, ch = size * 0.21;
-    // limb darkening: lit from the upper left, falling to shadow at the edge
-    const shade = (x, y, lit) =>
-      `radial-gradient(circle at ${x}% ${y}%, transparent ${lit}%, rgba(8,4,2,.6) 92%)`;
+  if (tier.k === 'planet' || tier.k === 'gas') {
+    const bands = tier.k === 'gas';
     return (
       <div className="ac-body" style={s}>
-        <div className="ac-slowspin" style={{ position: 'absolute', inset: 0 }}>
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%', width: pl, height: pl,
-            margin: `${-pl / 2}px 0 0 ${-pl / 2}px`, transform: `translateX(${-size * 0.25}px)`,
-            borderRadius: '50%', overflow: 'hidden',
-            background: `radial-gradient(circle at 34% 28%, ${a}, ${b} 80%)`,
-            boxShadow: `0 0 ${size * 0.18}px ${b}66`,
-          }}>
-            <div style={{
-              position: 'absolute', left: '20%', top: '54%', width: '52%', height: '24%',
-              borderRadius: '50%', background: '#3d241344', filter: 'blur(4px)',
-            }} />
-            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: shade(33, 27, 36) }} />
-          </div>
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%', width: ch, height: ch,
-            margin: `${-ch / 2}px 0 0 ${-ch / 2}px`, transform: `translateX(${size * 0.375}px)`,
-            borderRadius: '50%', overflow: 'hidden',
-            background: 'radial-gradient(circle at 36% 30%, #d3dae1, #474d55 82%)',
-            boxShadow: `0 0 ${size * 0.09}px #474d5588`,
-          }}>
-            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: shade(35, 29, 32) }} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  /* A world with air. The giveaway is the bright limb: the airglow ring has to
-     sit OUTSIDE the disc, so its gradient stops are measured against an element
-     wider than the sphere — inside it, the ring hides behind the planet and you
-     get nothing. Land is several overlapping irregular blobs per mass in varied
-     tints, because single ovals read as polka dots. */
-  if (tier.k === 'world') {
-    const sph = size * 0.8;
-    const land = [
-      [10, 26, 30, 22, '62% 38% 47% 53% / 55% 61% 39% 45%', b, 1, -12],
-      [20, 38, 22, 17, '44% 56% 63% 37% / 51% 42% 58% 49%', '#3f6212', 0.9, 8],
-      [26, 20, 16, 12, '55% 45% 40% 60% / 60% 45% 55% 40%', '#0f766e', 0.85, 20],
-      [46, 14, 26, 19, '48% 52% 58% 42% / 62% 38% 62% 38%', b, 0.95, 14],
-      [60, 24, 15, 13, '60% 40% 52% 48% / 44% 56% 44% 56%', '#3f6212', 0.8, -18],
-      [52, 48, 30, 26, '57% 43% 38% 62% / 44% 58% 42% 56%', b, 1, 6],
-      [62, 62, 17, 14, '46% 54% 60% 40% / 58% 42% 55% 45%', '#0f766e', 0.9, -10],
-      [16, 62, 24, 19, '52% 48% 44% 56% / 61% 39% 57% 43%', b, 0.92, 16],
-      [30, 72, 14, 11, '58% 42% 50% 50% / 45% 55% 48% 52%', '#3f6212', 0.75, -6],
-    ];
-    const cap = (edge, h, o) => ({
-      position: 'absolute', left: '-6%', [edge]: `-${edge === 'top' ? 8 : 9}%`,
-      width: '112%', height: `${h}%`, borderRadius: '50%',
-      background: '#f8fdff', opacity: o, filter: `blur(${edge === 'top' ? 3 : 3.5}px)`,
-    });
-    return (
-      <div className="ac-body" style={s}>
-        <div style={{
-          position: 'absolute', width: sph * 1.30, height: sph * 1.30, borderRadius: '50%',
-          background: `radial-gradient(circle, transparent 74%, ${a}66 80%, ${a}22 86%, transparent 94%)`,
-          filter: 'blur(1.5px)',
-        }} />
-        <div style={{
-          position: 'relative', width: sph, height: sph, borderRadius: '50%', overflow: 'hidden',
-          background: `radial-gradient(circle at 32% 26%, ${a}, #0284c7 46%, #083c5e 94%)`,
-        }}>
-          {land.map(([l, t, w, h, r, col, op, rot], i) => (
-            <div key={i} style={{
-              position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
-              background: col, borderRadius: r, transform: `rotate(${rot}deg)`,
-              filter: 'blur(1.6px)', opacity: op,
-            }} />
-          ))}
-          <div style={cap('top', 14, 0.8)} />
-          <div style={cap('bottom', 15, 0.72)} />
-          <div className="ac-slowspin" style={{ position: 'absolute', left: '-25%', top: '-25%', width: '150%', height: '150%' }}>
-            {[[16, 35, 54, 10, 0.4, 4], [38, 57, 38, 8, 0.32, 4], [45, 23, 24, 6, 0.28, 3]].map(([l, t, w, h, o, bl], i) => (
-              <div key={i} style={{
-                position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
-                borderRadius: '50%', background: '#fff', opacity: o, filter: `blur(${bl}px)`,
-              }} />
-            ))}
-          </div>
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            background: 'radial-gradient(circle at 31% 25%, transparent 46%, rgba(1,6,20,.55) 100%)',
+        {bands && (
+          <div className="ac-ring" style={{
+            width: size * 1.28, height: size * 0.36, borderColor: `${a}88`, transform: 'rotate(-16deg)',
           }} />
-          <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', boxShadow: `inset 0 0 ${sph * 0.07}px ${a}bb` }} />
-        </div>
-      </div>
-    );
-  }
-
-  /* Neptune-class: banded, but softly — bold stripes are the gas giant's job,
-     and these two sit two stages apart. The Great Dark Spot and the methane
-     cloud streaks are what carry it. */
-  if (tier.k === 'ice') {
-    const sph = size * 0.8;
-    return (
-      <div className="ac-body" style={s}>
-        <div style={{
-          position: 'absolute', width: sph * 1.28, height: sph * 1.28, borderRadius: '50%',
-          background: `radial-gradient(circle, transparent 74%, ${a}4d 80%, ${a}1a 87%, transparent 94%)`,
-          filter: 'blur(1.5px)',
-        }} />
-        <div style={{
-          position: 'relative', width: sph, height: sph, borderRadius: '50%', overflow: 'hidden',
-          background: `radial-gradient(circle at 34% 26%, #38bdf8, ${b} 62%, #062f4f 92%)`,
-        }}>
-          <div style={{
-            position: 'absolute', inset: 0,
-            background: 'repeating-linear-gradient(176deg, #ffffff0c 0 10%, transparent 10% 17%, #04263f1c 17% 26%)',
-          }} />
-          <div style={{
-            position: 'absolute', left: '16%', top: '30%', width: '34%', height: '20%', borderRadius: '50%',
-            background: '#03203a', opacity: 0.72, filter: 'blur(2.5px)',
-          }} />
-          <div style={{
-            position: 'absolute', left: '22%', top: '34%', width: '20%', height: '10%', borderRadius: '50%',
-            background: '#01162b', opacity: 0.6, filter: 'blur(2px)',
-          }} />
-          {[[44, 56, 48, 6, 0.32], [22, 69, 34, 5, 0.22], [54, 25, 30, 4, 0.26]].map(([l, t, w, h, o], i) => (
-            <div key={i} style={{
-              position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
-              borderRadius: '50%', background: '#eaf8ff', opacity: o, filter: 'blur(3.5px)',
-            }} />
-          ))}
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            background: 'radial-gradient(circle at 33% 25%, transparent 46%, rgba(1,10,24,.58) 100%)',
-          }} />
-          <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', boxShadow: `inset 0 0 ${sph * 0.09}px ${a}aa` }} />
-        </div>
-      </div>
-    );
-  }
-
-  /* A failed star, and the one body on the ladder that is lit from inside.
-     Every planet here uses a gradient offset to the upper left, which is what
-     being lit from outside looks like; centring it and putting the brightest
-     point in the middle is what says this thing glows by itself. Over that go
-     broken iron and silicate cloud bands with the hot interior showing through
-     the gaps, a few soft dark patches so the banding is not pure horizontal
-     stripes, and a dull heat corona where a planet would wear a ring. */
-  if (tier.k === 'ember') {
-    const sph = size * 0.8;
-    const dark = '#2a0f06';
-    // uneven bands with uneven gaps; the alpha varies so no two cloud decks
-    // sit at the same depth
-    const band = `${dark}e6 0 6%, transparent 6% 11%, ${dark}c4 11% 15%, transparent 15% 22%, `
-      + `${dark}ee 22% 28%, transparent 28% 33%, ${dark}b0 33% 37%, transparent 37% 45%, `
-      + `${dark}dd 45% 51%, transparent 51% 56%, ${dark}cc 56% 61%, transparent 61% 69%, `
-      + `${dark}e6 69% 75%, transparent 75% 80%, ${dark}bb 80% 85%, transparent 85% 93%, `
-      + `${dark}d8 93% 100%`;
-    return (
-      <div className="ac-body" style={s}>
-        <div className="ac-corona" style={{
-          width: size * 1.06, height: size * 1.06,
-          background: `radial-gradient(circle, ${a}20 40%, ${b}30 56%, transparent 72%)`,
-        }} />
-        <div style={{
-          position: 'relative', width: sph, height: sph, borderRadius: '50%', overflow: 'hidden',
-          background: `radial-gradient(circle at 50% 50%, #ffe6bd 0%, ${a} 20%, #c2410c 42%, ${b} 68%, #3b1508 100%)`,
-        }}>
-          {[[20, 30, 30, 13, 0.55, 5], [52, 58, 34, 14, 0.44, 5.5], [38, 16, 22, 9, 0.33, 4.5]].map(
-            ([l, t, w, h, o, bl], i) => (
-              <div key={`h${i}`} style={{
-                position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
-                borderRadius: '50%', opacity: o, filter: `blur(${bl}px)`,
-                background: `radial-gradient(circle, #ffd9a0, ${a} 58%, transparent 80%)`,
-              }} />
-            ))}
-          <div style={{
-            position: 'absolute', inset: '-4%', filter: 'blur(3.2px)',
-            background: `repeating-linear-gradient(174deg, ${band})`,
-          }} />
-          {[[-6, 22, 38, 22, 0.5, 7], [62, 44, 42, 26, 0.42, 8], [28, 74, 34, 20, 0.36, 7]].map(
-            ([l, t, w, h, o, bl], i) => (
-              <div key={`m${i}`} style={{
-                position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
-                borderRadius: '50%', background: dark, opacity: o, filter: `blur(${bl}px)`,
-              }} />
-            ))}
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            background: 'radial-gradient(circle at 50% 50%, transparent 64%, rgba(12,3,0,.5) 100%)',
-          }} />
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            boxShadow: `inset 0 0 ${sph * 0.05}px ${a}99, 0 0 ${sph * 0.05}px #00000088`,
-          }} />
-        </div>
-      </div>
-    );
-  }
-
-  /* Gas giant. Brown dwarf used to share this branch and no longer does, so
-     this is the only tier drawing bands and a ring. */
-  if (tier.k === 'gas') {
-    return (
-      <div className="ac-body" style={s}>
-        <div className="ac-ring" style={{
-          width: size * 1.28, height: size * 0.36, borderColor: `${a}88`, transform: 'rotate(-16deg)',
-        }} />
+        )}
         <div style={{
           width: size * 0.8, height: size * 0.8, borderRadius: '50%', overflow: 'hidden',
-          background: `repeating-linear-gradient(172deg, ${a} 0 7%, ${b} 7% 13%, ${a}cc 13% 17%)`,
+          background: bands
+            ? `repeating-linear-gradient(172deg, ${a} 0 7%, ${b} 7% 13%, ${a}cc 13% 17%)`
+            : `radial-gradient(circle at 34% 28%, ${a}, ${b} 76%)`,
           boxShadow: `inset -${size * 0.09}px -${size * 0.05}px ${size * 0.16}px rgba(0,0,0,.65), 0 0 ${size * 0.28}px ${b}55`,
         }} />
       </div>
@@ -818,114 +535,16 @@ function Body({ tier, size }) {
     );
   }
 
-  /* Six tiers share this one. What actually separates a stellar-mass hole from
-     a quasar is not the hole, it is what surrounds it — a companion star being
-     stripped, a star cluster, cold gas, orbiting S-stars, jets — so those live
-     in tier.h rather than in six near-identical branches. Layering matters:
-     disk 1, feed 1, jets 2, photon ring 3, horizon 4. Without an explicit
-     z-index the disk paints last and swallows the jets. */
   if (tier.k === 'hole') {
-    const {
-      r = 0.56, disk = 1, dh = 0.42, diskOp = 0.92, spin = 3.4,
-      jet = 0, ring = 0, glow = 1, feed = null,
-    } = tier.h || {};
-    const hz = size * r;
-    const dot = (x, y, sc, i) => (
-      <div key={`c${i}`} style={{
-        position: 'absolute', left: `${x}%`, top: `${y}%`,
-        width: size * 0.052 * sc, height: size * 0.052 * sc, borderRadius: '50%',
-        background: '#fff', opacity: 0.35 + sc * 0.5, boxShadow: `0 0 ${size * 0.03}px ${a}`, zIndex: 1,
-      }} />
-    );
     return (
       <div className="ac-body" style={s}>
-        {disk ? (
-          <div className="ac-disk" style={{
-            width: size * 1.35 * disk, height: size * dh * disk, opacity: diskOp,
-            animationDuration: `${spin}s`, zIndex: 1,
-            background: `conic-gradient(from 0deg, ${b}, ${a}, #fff, ${a}, ${b}, ${a}, #fff, ${b})`,
-          }} />
-        ) : null}
-
-        {feed === 'companion' && (<>
-          <div style={{
-            position: 'absolute', left: '2%', top: '22%', width: size * 0.50, height: size * 0.40,
-            borderRadius: '50%', border: `${size * 0.030}px solid transparent`,
-            borderTopColor: '#dbeafe', borderRightColor: '#93c5fd',
-            transform: 'rotate(22deg)', filter: `blur(${size * 0.012}px)`, opacity: 0.75, zIndex: 1,
-          }} />
-          <div style={{
-            position: 'absolute', left: '4%', top: '24%', width: size * 0.22, height: size * 0.22,
-            borderRadius: '50%', zIndex: 3,
-            background: 'radial-gradient(circle at 38% 34%, #fff 14%, #dbeafe 42%, #60a5fa 82%)',
-            boxShadow: `0 0 ${size * 0.16}px #93c5fd, 0 0 ${size * 0.05}px #fff`,
-          }} />
-        </>)}
-
-        {feed === 'cluster' && [[14, 20, 0.55], [82, 26, 0.7], [26, 78, 0.5], [72, 74, 0.6], [6, 54, 0.4],
-          [92, 58, 0.45], [44, 8, 0.5], [58, 92, 0.4], [34, 40, 0.3], [66, 40, 0.35]]
-          .map(([x, y, sc], i) => dot(x, y, sc, i))}
-
-        {feed === 'dust' && [[-18, 14, 86, 44, 0.5, -16], [28, 58, 82, 40, 0.42, 12],
-          [6, -10, 66, 34, 0.3, 8], [46, 20, 58, 30, 0.26, -6]].map(([x, y, w, hh, o, rot], i) => (
-          <div key={`d${i}`} style={{
-            position: 'absolute', left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${hh}%`,
-            borderRadius: '50%', opacity: o, transform: `rotate(${rot}deg)`,
-            filter: `blur(${size * 0.05}px)`, zIndex: 1,
-            background: 'radial-gradient(ellipse, #8d5340, #43203a 55%, transparent 76%)',
-          }} />
-        ))}
-
-        {feed === 'orbits' && [[1.16, 0.52, -22, 26, '#fff'], [0.92, 0.38, 34, 18, '#fde68a'],
-          [1.32, 0.30, 8, 34, '#bfdbfe']].map(([w, hh, rot, dur, col], i) => (
-          <div key={`o${i}`} className="ac-slowspin" style={{
-            position: 'absolute', width: size * w, height: size * hh,
-            animationDuration: `${dur}s`, transform: `rotate(${rot}deg)`, zIndex: 1,
-          }}>
-            <div style={{ position: 'absolute', inset: 0, border: `1px solid ${a}55`, borderRadius: '50%' }} />
-            <div style={{
-              position: 'absolute', left: 0, top: '50%', width: size * 0.03, height: size * 0.03,
-              marginTop: -size * 0.015, borderRadius: '50%', background: col,
-              boxShadow: `0 0 ${size * 0.05}px ${col}`,
-            }} />
-          </div>
-        ))}
-
-        {jet ? ['bottom', 'top'].map((edge) => {
-          const jw = size * 0.13 * jet, jh = size * 0.78 * jet;
-          const dir = edge === 'bottom' ? 'to top' : 'to bottom';
-          // anchored by ONE edge at the centre line: setting top and bottom
-          // together with a height makes top win and both beams point the same
-          // way. 0% of the gradient is the end at the hole, so the bright stop
-          // goes first or the beam blazes at the tip and vanishes at its throat.
-          return (
-            <div key={edge}>
-              <div style={{
-                position: 'absolute', left: '50%', [edge]: '50%', width: jw, height: jh,
-                marginLeft: -jw / 2, filter: `blur(${size * 0.020}px)`, opacity: 0.85, zIndex: 2,
-                background: `linear-gradient(${dir}, #ffffff, #f5d0fe 16%, ${a}bb 46%, ${a}44 74%, ${a}00 100%)`,
-              }} />
-              <div style={{
-                position: 'absolute', left: '50%', [edge]: '50%', width: jw * 0.30, height: jh * 0.97,
-                marginLeft: -jw * 0.15, filter: `blur(${size * 0.005}px)`, zIndex: 2,
-                background: `linear-gradient(${dir}, #fff, #fff 34%, ${a}66 72%, transparent 100%)`,
-              }} />
-            </div>
-          );
-        }) : null}
-
-        {ring ? (
-          <div style={{
-            position: 'absolute', width: hz * 1.16, height: hz * 1.16, borderRadius: '50%', zIndex: 3,
-            border: `${Math.max(1.2, size * 0.008 * ring)}px solid #ffffff${ring > 0.8 ? '' : 'aa'}`,
-            boxShadow: `0 0 ${size * 0.05 * ring}px #fff, inset 0 0 ${size * 0.04 * ring}px #fff`,
-            opacity: Math.min(0.95, 0.45 + ring * 0.4),
-          }} />
-        ) : null}
-
+        <div className="ac-disk" style={{
+          width: size * 1.35, height: size * 0.42,
+          background: `conic-gradient(from 0deg, ${b}, ${a}, #fff, ${a}, ${b}, ${a}, #fff, ${b})`,
+        }} />
         <div style={{
-          width: hz, height: hz, borderRadius: '50%', background: '#000', zIndex: 4,
-          boxShadow: `0 0 0 2px ${a}, 0 0 ${size * 0.22 * glow}px ${a}cc, 0 0 ${size * 0.7 * glow}px ${b}`,
+          width: size * 0.56, height: size * 0.56, borderRadius: '50%', background: '#000', zIndex: 3,
+          boxShadow: `0 0 0 2px ${a}, 0 0 ${size * 0.22}px ${a}cc, 0 0 ${size * 0.7}px ${b}`,
         }} />
       </div>
     );
@@ -1112,12 +731,10 @@ export default function Accretion() {
           setSavedAt(v.lastSave || null);
           const dt = clamp((Date.now() - (v.lastSave || Date.now())) / 1000, 0, BALANCE.offlineCapH * 3600);
           const raw = prod(s) * dt * offlineRate(s);
-          const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s, dt / 3600) - 1));
+          const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s) - 1));
           if (dt > 60 && gain > 0) { s.mass += gain; setWelcome({ dt, gain, capped: gain < raw }); }
         }
       } catch (e) { /* first run, or no storage */ }
-      // outside the try: a first run has no save to read, and that throws
-      if (/[?&]dev\b/.test(location.search)) G.current.dev = true;
       render((x) => x + 1);
     })();
   }, []);
@@ -1203,12 +820,9 @@ export default function Accretion() {
   };
 
   const buyGen = (i) => {
-    const free = devFree(s);
-    // "buy max" with free purchases would price off a mass you never spend,
-    // so in dev it means a fixed block of levels instead
-    const n = amt === -1 ? (free ? 25 : genMax(i, s.gens[i], s.mass)) : amt;
+    const n = amt === -1 ? genMax(i, s.gens[i], s.mass) : amt;
     if (n < 1) return;
-    const c = free ? 0 : genCost(i, s.gens[i], n);
+    const c = genCost(i, s.gens[i], n);
     if (c > s.mass) return;
     const before = Math.floor(s.gens[i] / BALANCE.milestoneEvery);
     s.mass -= c; s.gens[i] += n;
@@ -1217,17 +831,16 @@ export default function Accretion() {
   };
 
   const buyTap = () => {
-    const c = devFree(s) ? 0 : tapCost(s);
-    if (tapMaxed(s) || c > s.mass) return;
+    const c = tapCost(s);
+    if (c > s.mass) return;
     s.mass -= c; s.tap++;
     SFX.tapUp(s.tap);
     render((x) => x + 1);
   };
 
   const buyUp = (i) => {
-    const c = devFree(s) ? 0 : UPGRADES[i].cost;
-    if (s.ups[i] || c > s.mass) return;
-    s.mass -= c; s.ups[i] = true;
+    if (s.ups[i] || UPGRADES[i].cost > s.mass) return;
+    s.mass -= UPGRADES[i].cost; s.ups[i] = true;
     SFX.upgrade();
     render((x) => x + 1);
   };
@@ -1242,62 +855,19 @@ export default function Accretion() {
       shardsTotal: (s.shardsTotal || 0) + got,
       perks: s.perks.slice(),
       collapses: s.collapses + 1,
-      taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum, dev: s.dev,
+      taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum,
     });
     SFX.humStage(0);
     setConfirm(false); setTab('gen'); save(); render((x) => x + 1);
   };
 
   const buyPerk = (i) => {
-    const c = devFree(s) ? 0 : PERKS[i].cost;
-    if (s.perks[i] || c > s.shards) return;
-    s.shards -= c;
+    if (s.perks[i] || PERKS[i].cost > s.shards) return;
+    s.shards -= PERKS[i].cost;
     s.perks[i] = true;
     applyPerks(s);
     SFX.upgrade();
     save(); render((x) => x + 1);
-  };
-
-  /* Dev mode is off unless you ask for it: five taps on the play-time stat,
-     or ?dev in the URL. Neither happens by accident during a normal run. */
-  const devTaps = useRef(0);
-  const nudgeDev = () => {
-    devTaps.current += 1;
-    if (devTaps.current < 5) return;
-    devTaps.current = 0;
-    setDev(!s.dev);
-  };
-  const setDev = (on) => {
-    s.dev = on;
-    SFX.upgrade();
-    save(); render((x) => x + 1);
-  };
-
-  /* Test tools. Each one moves the real state the real way, so what you are
-     looking at afterwards is a state the game could actually reach. */
-  const devGrant = (mult) => {
-    s.mass = Math.max(s.mass, ATOM) * mult;
-    if (s.mass > s.best) { s.best = s.mass; checkStage(s); }
-    SFX.buy(); render((x) => x + 1);
-  };
-  const devSkipStage = () => {
-    const next = TIERS[s.stage + 1];
-    if (!next) return;
-    s.mass = Math.max(s.mass, next.at);
-    s.best = s.mass; checkStage(s);
-    render((x) => x + 1);
-  };
-  /* Run the production loop forward without waiting for it. This is the one
-     that matters for pacing work: it answers "where am I an hour from now". */
-  const devFastForward = (hours) => {
-    s.mass += prod(s) * hours * 3600;
-    s.played += hours * 3600;
-    if (s.mass > s.best) { s.best = s.mass; checkStage(s); }
-    SFX.milestone(); render((x) => x + 1);
-  };
-  const devShards = (n) => {
-    s.shards += n; s.shardsTotal = (s.shardsTotal || 0) + n;
-    SFX.buy(); render((x) => x + 1);
   };
 
   const toggleSfx = () => {
@@ -1356,10 +926,8 @@ export default function Accretion() {
   };
 
   const size = Math.min(74 + s.stage * 2.7, 178);
-  const visible = GENS.map((g, i) => i)
-    .filter((i) => s.dev || i < 2 || s.best >= GENS[i].cost * 0.2 || s.gens[i] > 0);
-  const openUps = UPGRADES.map((u, i) => i)
-    .filter((i) => !s.ups[i] && (s.dev || s.best >= UPGRADES[i].cost * 0.15));
+  const visible = GENS.map((g, i) => i).filter((i) => i < 2 || s.best >= GENS[i].cost * 0.2 || s.gens[i] > 0);
+  const openUps = UPGRADES.map((u, i) => i).filter((i) => !s.ups[i] && s.best >= UPGRADES[i].cost * 0.15);
 
   return (
     <div className="ac-app" style={{
@@ -1462,10 +1030,6 @@ export default function Accretion() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div className="ac-tier" style={{ color: accent }}>{tier.n}</div>
           <div className="ac-toggles">
-            {s.dev && (
-              <button className="on" onClick={() => setDev(false)} aria-label="Developer mode is on"
-                style={{ color: '#fca5a5', borderColor: '#fca5a566', background: '#fca5a51f' }}>dev</button>
-            )}
             <button className={s.sfx ? 'on' : ''} onClick={toggleSfx} aria-label="Sound effects"
               style={s.sfx ? { color: accent, borderColor: `${accent}66`, background: `${accent}1f` } : undefined}>sfx</button>
             <button className={s.sfx && s.hum ? 'on' : ''} onClick={toggleHum} aria-label="Ambient hum"
@@ -1530,17 +1094,16 @@ export default function Accretion() {
           <div className="ac-list">
             {visible.map((i) => {
               const owned = s.gens[i];
-              const free = devFree(s);
-              const n = amt === -1 ? (free ? 25 : Math.max(genMax(i, owned, s.mass), 1)) : amt;
-              const c = free ? 0 : genCost(i, owned, n);
+              const n = amt === -1 ? Math.max(genMax(i, owned, s.mass), 1) : amt;
+              const c = genCost(i, owned, n);
               const toMs = BALANCE.milestoneEvery - (owned % BALANCE.milestoneEvery);
+              const after = { ...s, gens: s.gens.map((count, j) => j === i ? count + n : count) };
+              const addedOutput = (genOutput(after, i) - genOutput(s, i)) * upMult(s);
               return (
-                <Row key={i} accent={accent} tint={GENS[i].c} ok={free || c <= s.mass} onClick={() => buyGen(i)}
+                <Row key={i} accent={accent} tint={GENS[i].c} ok={c <= s.mass} onClick={() => buyGen(i)}
                   title={GENS[i].n} sub={GENS[i].d} right={owned ? `${owned}` : ''}
-                  cost={`${free ? 'free' : `${fmt(c)} kg`}${n > 1 ? ` · ${n}×` : ''}`}
-                  note={owned
-                    ? `+${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} in ${toMs}`
-                    : `+${fmt(GENS[i].prod * upMult(s))} kg/s each`}
+                  cost={`${fmt(c)} kg${n > 1 ? ` · ${n}×` : ''}`}
+                  note={`This purchase: +${fmt(addedOutput)} kg/s · Current: ${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} milestone in ${toMs} levels`}
                 />
               );
             })}
@@ -1553,20 +1116,14 @@ export default function Accretion() {
 
       {tab === 'up' && (
         <div className="ac-list">
-          <Row accent={accent} tint="#fcd34d" ok={!tapMaxed(s) && (devFree(s) || tapCost(s) <= s.mass)} onClick={buyTap}
-            title="Capture cross-section"
-            sub={tapMaxed(s)
-              ? 'Every pull takes the widest bite it can'
-              : `Each pull takes +${(BALANCE.tapStep * 100).toFixed(1)}% of a second's output`}
-            right={`lv ${s.tap} / ${BALANCE.tapLevels}`}
-            cost={tapMaxed(s) ? 'Maxed' : devFree(s) ? 'free' : `${fmt(tapCost(s))} kg`}
-            note={`pull = ${fmt(tapGain(s))} kg · ${(tapShare(s) * 100).toFixed(1)}% of a second`} />
+          <Row accent={accent} tint="#fcd34d" ok={tapCost(s) <= s.mass} onClick={buyTap}
+            title="Capture cross-section" sub="Doubles base mass per pull; the production-based bonus stays the same"
+            right={`lv ${s.tap}`} cost={`${fmt(tapCost(s))} kg`} note={`Per pull: ${fmt(tapGain(s))} → ${fmt(tapGain({ ...s, tap: s.tap + 1 }))} kg · Adds ${fmt(ATOM * 3 * Math.pow(2, s.tap))} kg/pull`} />
 
           {openUps.map((i) => (
-            <Row key={i} accent={accent} tint={UPGRADES[i].c} onClick={() => buyUp(i)}
-              ok={devFree(s) || UPGRADES[i].cost <= s.mass}
+            <Row key={i} accent={accent} tint={UPGRADES[i].c} ok={UPGRADES[i].cost <= s.mass} onClick={() => buyUp(i)}
               title={UPGRADES[i].n} sub={UPGRADES[i].d}
-              cost={devFree(s) ? 'free' : `${fmt(UPGRADES[i].cost)} kg`} note={`×${UPGRADES[i].mult} to everything`} />
+              cost={`${fmt(UPGRADES[i].cost)} kg`} note={`×${UPGRADES[i].mult} accretor production · +${fmt(perSec * (UPGRADES[i].mult - 1))} kg/s · +${fmt(perSec * (UPGRADES[i].mult - 1) * tapShare(s))} kg/pull; base pull unchanged`} />
           ))}
 
           <div style={{ padding: '10px 11px', borderRadius: 12, background: 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.07)' }}>
@@ -1575,7 +1132,7 @@ export default function Accretion() {
               <span style={{ color: SHARD_C }}>{s.shards} shards</span>
             </div>
             <div className="ac-row-s">
-              Once you are supermassive you can collapse back to hydrogen. Everything resets except shards. Every shard you have ever earned raises output, with diminishing returns towards ×{BALANCE.shardCap} — you are at ×{shardMult(s).toFixed(2)} now. They also buy the perks below.
+              Once you are supermassive you can collapse back to hydrogen. Mass, accretors, and physics upgrades reset. You keep shards and purchased perks. Each shard ever earned adds 15% to your permanent accretor production bonus, including the production-based part of pulls. Spending shards does not reduce this bonus.
             </div>
             {s.stage >= PRESTIGE_AT ? (
               <button className="ac-btn" style={{ background: accent }} onClick={() => setConfirm(true)}>
@@ -1586,17 +1143,16 @@ export default function Accretion() {
             )}
           </div>
 
-          {(s.dev || s.shardsTotal > 0) && (
+          {(s.shardsTotal > 0) && (
             <>
               <div className="ac-sub" style={{ padding: '8px 2px 2px' }}>
                 Shard perks · <span style={{ color: SHARD_C }}>{s.shards} to spend</span>
               </div>
               {PERKS.map((p, i) => (
-                <Row key={i} accent={accent} tint={SHARD_C} onClick={() => buyPerk(i)}
-                  ok={!s.perks[i] && (devFree(s) || p.cost <= s.shards)}
-                  title={p.n} sub={p.d}
+                <Row key={i} accent={accent} tint={SHARD_C} ok={!s.perks[i] && p.cost <= s.shards}
+                  onClick={() => buyPerk(i)} title={p.n} sub={p.d}
                   right={s.perks[i] ? 'owned' : ''}
-                  cost={s.perks[i] ? 'Active' : devFree(s) ? 'free' : `${p.cost} shards`} />
+                  cost={s.perks[i] ? 'Active' : `${p.cost} shards`} />
               ))}
             </>
           )}
@@ -1616,8 +1172,7 @@ export default function Accretion() {
             ['Shards earned', `${s.shardsTotal || 0}`],
             ['Time in this universe', `${Math.floor(s.played / 60)}m ${Math.floor(s.played % 60)}s`],
           ].map(([k, v]) => (
-            <div key={k} onClick={k === 'Time in this universe' ? nudgeDev : undefined}
-              style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 11px', fontSize: 12.5 }}>
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 11px', fontSize: 12.5 }}>
               <span style={{ color: '#7d8ca8' }}>{k}</span>
               <span style={{ fontVariantNumeric: 'tabular-nums', color: k === 'Shards earned' ? SHARD_C : accent }}>{v}</span>
             </div>
@@ -1637,35 +1192,6 @@ export default function Accretion() {
             onClick={() => { if (wipe) { G.current = newGame(); SFX.hum(false); setWipe(false); save(); } else setWipe(true); }}>
             {wipe ? 'Tap again to erase everything' : 'Start over'}
           </button>
-
-          {s.dev && (
-            <div style={{
-              marginTop: 10, padding: '10px 11px', borderRadius: 12,
-              background: 'rgba(252,165,165,.06)', border: '1px solid rgba(252,165,165,.28)',
-            }}>
-              <div className="ac-row-t" style={{ marginBottom: 3 }}>
-                <span style={{ color: '#fca5a5' }}>Developer mode</span>
-                <span style={{ color: '#fca5a5' }}>free</span>
-              </div>
-              <div className="ac-row-s" style={{ marginBottom: 8 }}>
-                Accretors, physics, the pull track and perks all cost nothing, and
-                nothing is hidden behind an unlock. Tap the play time five times
-                again to leave.
-              </div>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <button className="ac-tab" onClick={() => devFastForward(1)}>+1 hour</button>
-                <button className="ac-tab" onClick={() => devFastForward(8)}>+8 hours</button>
-              </div>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <button className="ac-tab" onClick={devSkipStage}>Next stage</button>
-                <button className="ac-tab" onClick={() => devGrant(1e6)}>×10⁶ mass</button>
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="ac-tab" onClick={() => devShards(25)}>+25 shards</button>
-                <button className="ac-tab" onClick={() => setDev(false)}>Leave dev mode</button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -1683,7 +1209,7 @@ export default function Accretion() {
             <div className="ac-tier" style={{ color: accent }}>You kept accreting</div>
             <div className="ac-blurb" style={{ marginTop: 6 }}>
               {Math.floor(welcome.dt / 3600)}h {Math.floor((welcome.dt % 3600) / 60)}m away.
-              {welcome.capped ? ' Offline growth is capped by how long you were gone — longer away, further carried.' : ''}
+              {welcome.capped ? ' Offline growth carries you part of the way to the next stage, never past it.' : ''}
             </div>
             <div className="ac-mass" style={{ fontSize: 22, marginTop: 10 }}>+{fmt(welcome.gain)} kg</div>
             <button className="ac-btn" style={{ background: accent }} onClick={() => setWelcome(null)}>Keep going</button>
