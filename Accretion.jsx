@@ -150,10 +150,10 @@ const UPGRADES = [
 /* spent with collapse shards; bounded, and none of them compound */
 const SHARD_C = '#f0abfc';
 const PERKS = [
-  { n: 'Residual disk',       d: 'Begin every run with 20 levels of your first two accretors', cost: 4 },
+  { n: 'Residual disk',       d: 'Raises your first two accretors to at least level 20 now and at the start of each run', cost: 4 },
   { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, up to the cap', cost: 8 },
-  { n: 'Tidal capture',       d: 'Pulls draw a quarter-second of output instead of a tenth',   cost: 14 },
-  { n: 'Fossil metallicity',  d: 'Stage bonuses nearly double: 22% of the next gap, not 12%',   cost: 24 },
+  { n: 'Tidal capture',       d: 'Each pull adds 0.25 seconds of production instead of 0.1, plus its base mass',   cost: 14 },
+  { n: 'Fossil metallicity',  d: 'Increases the one-time mass bonus at each new stage; the multiplier depends on the spacing to the following stage',   cost: 24 },
 ];
 
 /* ---------- number formatting ---------- */
@@ -1097,13 +1097,13 @@ export default function Accretion() {
               const n = amt === -1 ? Math.max(genMax(i, owned, s.mass), 1) : amt;
               const c = genCost(i, owned, n);
               const toMs = BALANCE.milestoneEvery - (owned % BALANCE.milestoneEvery);
+              const after = { ...s, gens: s.gens.map((count, j) => j === i ? count + n : count) };
+              const addedOutput = (genOutput(after, i) - genOutput(s, i)) * upMult(s);
               return (
                 <Row key={i} accent={accent} tint={GENS[i].c} ok={c <= s.mass} onClick={() => buyGen(i)}
                   title={GENS[i].n} sub={GENS[i].d} right={owned ? `${owned}` : ''}
                   cost={`${fmt(c)} kg${n > 1 ? ` · ${n}×` : ''}`}
-                  note={owned
-                    ? `+${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} in ${toMs}`
-                    : `+${fmt(GENS[i].prod * upMult(s))} kg/s each`}
+                  note={`This purchase: +${fmt(addedOutput)} kg/s · Current: ${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} milestone in ${toMs} levels`}
                 />
               );
             })}
@@ -1117,13 +1117,13 @@ export default function Accretion() {
       {tab === 'up' && (
         <div className="ac-list">
           <Row accent={accent} tint="#fcd34d" ok={tapCost(s) <= s.mass} onClick={buyTap}
-            title="Capture cross-section" sub="Doubles what one pull brings in"
-            right={`lv ${s.tap}`} cost={`${fmt(tapCost(s))} kg`} note={`pull = ${fmt(tapGain(s))} kg`} />
+            title="Capture cross-section" sub="Doubles base mass per pull; the production-based bonus stays the same"
+            right={`lv ${s.tap}`} cost={`${fmt(tapCost(s))} kg`} note={`Per pull: ${fmt(tapGain(s))} → ${fmt(tapGain({ ...s, tap: s.tap + 1 }))} kg · Adds ${fmt(ATOM * 3 * Math.pow(2, s.tap))} kg/pull`} />
 
           {openUps.map((i) => (
             <Row key={i} accent={accent} tint={UPGRADES[i].c} ok={UPGRADES[i].cost <= s.mass} onClick={() => buyUp(i)}
               title={UPGRADES[i].n} sub={UPGRADES[i].d}
-              cost={`${fmt(UPGRADES[i].cost)} kg`} note={`×${UPGRADES[i].mult} to everything`} />
+              cost={`${fmt(UPGRADES[i].cost)} kg`} note={`×${UPGRADES[i].mult} accretor production · +${fmt(perSec * (UPGRADES[i].mult - 1))} kg/s · +${fmt(perSec * (UPGRADES[i].mult - 1) * tapShare(s))} kg/pull; base pull unchanged`} />
           ))}
 
           <div style={{ padding: '10px 11px', borderRadius: 12, background: 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.07)' }}>
@@ -1132,7 +1132,7 @@ export default function Accretion() {
               <span style={{ color: SHARD_C }}>{s.shards} shards</span>
             </div>
             <div className="ac-row-s">
-              Once you are supermassive you can collapse back to hydrogen. Everything resets except shards. Every shard you have ever earned adds 15% output permanently, and they also buy the perks below.
+              Once you are supermassive you can collapse back to hydrogen. Mass, accretors, and physics upgrades reset. You keep shards and purchased perks. Each shard ever earned adds 15% to your permanent accretor production bonus, including the production-based part of pulls. Spending shards does not reduce this bonus.
             </div>
             {s.stage >= PRESTIGE_AT ? (
               <button className="ac-btn" style={{ background: accent }} onClick={() => setConfirm(true)}>
