@@ -1,5 +1,5 @@
 /* Cache-first app shell. Bump CACHE when you rebuild so the phone picks it up. */
-const CACHE = 'accretion-v12';
+const CACHE = 'accretion-v13';
 const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon.svg',
                './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 

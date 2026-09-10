@@ -118,7 +118,7 @@ const TIERS = [
   { n: 'Supermassive hole',  at: 8.5e36,  k: 'hole',    c: ['#f0abfc', '#4a044e'], d: 'Sagittarius A*, anchoring everything you can see.',
     h: { r: 0.52, disk: 1.05, dh: 0.40, spin: 4.2, ring: 0.7, feed: 'orbits' } },
   { n: 'Quasar engine',      at: 1e39,    k: 'hole',    c: ['#f5d0fe', '#701a75'], d: 'Feeding hard enough to outshine its host galaxy.',
-    h: { r: 0.44, disk: 1.02, dh: 0.30, diskOp: 1, spin: 1.5, ring: 0.6, glow: 1.4, jet: 1 } },
+    h: { r: 0.40, disk: 0.96, dh: 0.25, diskOp: 1, spin: 11, ring: 1.0, glow: 1.35, jet: 1 } },
   { n: 'Ultramassive hole',  at: 1.3e41,  k: 'hole',    c: ['#fbcfe8', '#f472b6'], d: 'TON 618. Sixty-six billion suns — near the ceiling for any one hole.',
     h: { r: 0.70, disk: 1.30, dh: 0.30, diskOp: 0.55, spin: 9.0, ring: 1.0, glow: 0.9 } },
 
@@ -852,12 +852,78 @@ function Body({ tier, size }) {
     );
     return (
       <div className="ac-body" style={s}>
-        {disk ? (
+        {disk && !jet ? (
           <div className="ac-disk" style={{
             width: size * 1.35 * disk, height: size * dh * disk, opacity: diskOp,
             animationDuration: `${spin}s`, zIndex: 1,
             background: `conic-gradient(from 0deg, ${b}, ${a}, #fff, ${a}, ${b}, ${a}, #fff, ${b})`,
           }} />
+        ) : null}
+
+        {/* A jetted hole is drawn as one system. The beams track the spin axis,
+            so they and the disk share a single rotating frame — spun apart, the
+            disk sweeps through vertical every few seconds and swallows them.
+            Real jets are beaded rather than smooth, so each beam gets a
+            collimated white core, shock knots down its length, a faint
+            ionisation cone and a terminal lobe where it stops. */}
+        {jet ? (
+          <div className="ac-slowspin" style={{
+            position: 'absolute', inset: 0, animationDuration: `${spin}s`,
+          }}>
+            {['bottom', 'top'].map((edge) => {
+              const dir = edge === 'bottom' ? 'to top' : 'to bottom';
+              const jw = size * 0.15 * jet, jh = size * 0.92 * jet;
+              const at = (f) => `calc(50% + ${jh * f}px)`;
+              const lw = size * 0.30;
+              return (
+                <div key={edge}>
+                  <div style={{
+                    position: 'absolute', left: '50%', [edge]: '50%',
+                    width: size * 0.52, height: jh * 0.86, marginLeft: -size * 0.26,
+                    background: `linear-gradient(${dir}, ${a}1c, ${a}0a 46%, transparent 86%)`,
+                    clipPath: 'polygon(50% 100%, 100% 0%, 0% 0%)',
+                    transform: edge === 'bottom' ? 'rotate(180deg)' : undefined,
+                    filter: `blur(${size * 0.05}px)`, opacity: 0.7, zIndex: 1,
+                  }} />
+                  <div style={{
+                    position: 'absolute', left: '50%', [edge]: '50%', width: jw, height: jh,
+                    marginLeft: -jw / 2, filter: `blur(${size * 0.020}px)`, opacity: 0.95, zIndex: 2,
+                    background: `linear-gradient(${dir}, #ffffff, #f0abfc 14%, #c026d3 40%, #86198f 68%, ${b}44 88%, transparent 100%)`,
+                  }} />
+                  <div style={{
+                    position: 'absolute', left: '50%', [edge]: '50%', width: jw * 0.22, height: jh * 0.94,
+                    marginLeft: -jw * 0.11, filter: `blur(${size * 0.0035}px)`, zIndex: 4,
+                    background: `linear-gradient(${dir}, #fff, #fff 26%, #fbcfe8 52%, ${a}66 78%, transparent 100%)`,
+                  }} />
+                  {[[0.26, 1, 1], [0.44, 0.8, 0.9], [0.62, 0.6, 0.75], [0.79, 0.45, 0.55]].map(([f, sc, op], i) => {
+                    const d = size * 0.085 * sc;
+                    return (
+                      <div key={`k${i}`} style={{
+                        position: 'absolute', left: '50%', [edge]: at(f),
+                        width: d, height: d * 0.66, marginLeft: -d / 2, borderRadius: '50%',
+                        background: `radial-gradient(circle, #ffffff 18%, #f0abfc 52%, ${a}00 80%)`,
+                        filter: `blur(${size * 0.010}px)`, opacity: op, zIndex: 4,
+                      }} />
+                    );
+                  })}
+                  <div style={{
+                    position: 'absolute', left: '50%', [edge]: at(0.92),
+                    width: lw, height: lw * 0.56, marginLeft: -lw / 2, borderRadius: '50%',
+                    background: 'radial-gradient(ellipse, #f5d0fecc, #c026d366 44%, transparent 72%)',
+                    filter: `blur(${size * 0.028}px)`, opacity: 0.8, zIndex: 2,
+                  }} />
+                </div>
+              );
+            })}
+            <div className="ac-disk" style={{
+              position: 'absolute', left: '50%', top: '50%',
+              width: size * 1.35 * disk, height: size * dh * disk,
+              margin: `${-size * dh * disk / 2}px 0 0 ${-size * 1.35 * disk / 2}px`,
+              animation: 'none', opacity: diskOp, zIndex: 3, filter: `blur(${size * 0.013}px)`,
+              background: `conic-gradient(from 0deg, ${b}, #86198f, #c026d3, #f0abfc, #ffffff, #f0abfc, `
+                + `#a21caf, ${b}, #86198f, #c026d3, #ffffff, #e879f9, #a21caf, ${b})`,
+            }} />
+          </div>
         ) : null}
 
         {feed === 'companion' && (<>
@@ -903,29 +969,6 @@ function Body({ tier, size }) {
             }} />
           </div>
         ))}
-
-        {jet ? ['bottom', 'top'].map((edge) => {
-          const jw = size * 0.13 * jet, jh = size * 0.78 * jet;
-          const dir = edge === 'bottom' ? 'to top' : 'to bottom';
-          // anchored by ONE edge at the centre line: setting top and bottom
-          // together with a height makes top win and both beams point the same
-          // way. 0% of the gradient is the end at the hole, so the bright stop
-          // goes first or the beam blazes at the tip and vanishes at its throat.
-          return (
-            <div key={edge}>
-              <div style={{
-                position: 'absolute', left: '50%', [edge]: '50%', width: jw, height: jh,
-                marginLeft: -jw / 2, filter: `blur(${size * 0.020}px)`, opacity: 0.85, zIndex: 2,
-                background: `linear-gradient(${dir}, #ffffff, #f5d0fe 16%, ${a}bb 46%, ${a}44 74%, ${a}00 100%)`,
-              }} />
-              <div style={{
-                position: 'absolute', left: '50%', [edge]: '50%', width: jw * 0.30, height: jh * 0.97,
-                marginLeft: -jw * 0.15, filter: `blur(${size * 0.005}px)`, zIndex: 2,
-                background: `linear-gradient(${dir}, #fff, #fff 34%, ${a}66 72%, transparent 100%)`,
-              }} />
-            </div>
-          );
-        }) : null}
 
         {ring ? (
           <div style={{
