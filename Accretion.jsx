@@ -79,6 +79,8 @@ const SUN = 1.989e30;
 const EARTH = 5.972e24;
 const SAVE_KEY = 'accretion_save_v6';
 
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
 /* --- the ladder: every threshold is a real mass in kg --- */
 const TIERS = [
   { n: 'Hydrogen atom',      at: ATOM,    k: 'atom',    c: ['#dbeafe', '#3b82f6'], d: 'One proton, one electron, and three quarters of all ordinary matter.' },
@@ -189,10 +191,10 @@ const UPGRADES = [
    the other way round. */
 const SHARD_C = '#f0abfc';
 const PERKS = [
-  { n: 'Residual disk',       d: 'Begin every run with 20 levels of your first two accretors', cost: 4 },
-  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, and caps ~50% later', cost: 8 },
-  { n: 'Tidal capture',       d: 'Pulls draw a quarter-second of output instead of a tenth',   cost: 22 },
-  { n: 'Fossil metallicity',  d: 'Stage bonuses nearly double: 22% of the next gap, not 12%',   cost: 12 },
+  { n: 'Residual disk',       d: 'Raises your first two accretors to at least level 20 now and at the start of each run', cost: 4 },
+  { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, and its cap fills ~50% faster', cost: 8 },
+  { n: 'Tidal capture',       d: 'Each pull adds 0.25 seconds of production instead of 0.1, plus its base mass',   cost: 22 },
+  { n: 'Fossil metallicity',  d: 'Increases the one-time mass bonus at each new stage; the multiplier depends on the spacing to the following stage',   cost: 12 },
 ];
 
 /* ---------- number formatting ---------- */
@@ -215,7 +217,6 @@ function altMass(kg) {
   return 'lighter than one atom';
 }
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 /* ---------- audio: everything is synthesised, no asset files ----------
    Sounds deepen as you gain mass, so an atom pings and a black hole
@@ -472,6 +473,18 @@ const genOutput = (s, i) => {
 };
 const prod = (s) => s.gens.reduce((a, _, i) => a + genOutput(s, i), 0) * upMult(s);
 const tapGain = (s) => ATOM * 3 * Math.pow(2, s.tap) + prod(s) * tapShare(s);
+
+/* Keep actual time away separate from the time eligible for offline income. */
+const applyOffline = (s, now = Date.now()) => {
+  const elapsed = Number.isFinite(s.lastSave) && s.lastSave > 0
+    ? Math.max(0, (now - s.lastSave) / 1000) : 0;
+  const credited = Math.min(elapsed, BALANCE.offlineCapH * 3600);
+  const raw = prod(s) * credited * offlineRate(s);
+  const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s, credited / 3600) - 1));
+  s.mass += gain;
+  s.lastSave = now;
+  return { dt: elapsed, credited, gain, timeCapped: elapsed > credited, massCapped: gain < raw };
+};
 
 const genCost = (i, count, n) => {
   const r = BALANCE.costGrowth;
@@ -1081,6 +1094,7 @@ function Row({ title, sub, cost, right, ok, onClick, accent, note, tint }) {
 
 export default function Accretion() {
   const G = useRef(newGame());
+  const ready = useRef(false);
   const [, render] = useState(0);
   const [tab, setTab] = useState('gen');
   const [amt, setAmt] = useState(1);
@@ -1110,19 +1124,21 @@ export default function Accretion() {
           G.current = s;
           SFX.setOn(s.sfx);
           setSavedAt(v.lastSave || null);
-          const dt = clamp((Date.now() - (v.lastSave || Date.now())) / 1000, 0, BALANCE.offlineCapH * 3600);
-          const raw = prod(s) * dt * offlineRate(s);
-          const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s, dt / 3600) - 1));
-          if (dt > 60 && gain > 0) { s.mass += gain; setWelcome({ dt, gain, capped: gain < raw }); }
+          const offline = applyOffline(s);
+          if (offline.dt > 60 && offline.gain > 0) setWelcome(offline);
+          await window.storage.set(SAVE_KEY, JSON.stringify(s));
+          setSavedAt(s.lastSave);
         }
       } catch (e) { /* first run, or no storage */ }
       // outside the try: a first run has no save to read, and that throws
       if (/[?&]dev\b/.test(location.search)) G.current.dev = true;
+      ready.current = true;
       render((x) => x + 1);
     })();
   }, []);
 
   const save = useCallback(async () => {
+    if (!ready.current) return false;
     try {
       G.current.lastSave = Date.now();
       await window.storage.set(SAVE_KEY, JSON.stringify(G.current));
@@ -1152,6 +1168,10 @@ export default function Accretion() {
     let raf, last = performance.now(), painted = 0, saved = 0;
     const loop = (t) => {
       const dt = Math.min((t - last) / 1000, 1); last = t;
+      if (!ready.current || document.hidden) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       const s = G.current;
       s.mass += prod(s) * dt;
       s.played += dt;
@@ -1162,6 +1182,13 @@ export default function Accretion() {
     };
     raf = requestAnimationFrame(loop);
     const bye = () => {
+      if (!ready.current) return;
+      if (!document.hidden) {
+        const offline = applyOffline(G.current);
+        if (offline.dt > 60 && offline.gain > 0) setWelcome(offline);
+        last = performance.now();
+        render((x) => x + 1);
+      }
       save();
       if (document.hidden) SFX.suspend(); else SFX.resume();
     };
@@ -1534,13 +1561,13 @@ export default function Accretion() {
               const n = amt === -1 ? (free ? 25 : Math.max(genMax(i, owned, s.mass), 1)) : amt;
               const c = free ? 0 : genCost(i, owned, n);
               const toMs = BALANCE.milestoneEvery - (owned % BALANCE.milestoneEvery);
+              const after = { ...s, gens: s.gens.map((count, j) => j === i ? count + n : count) };
+              const addedOutput = (genOutput(after, i) - genOutput(s, i)) * upMult(s);
               return (
                 <Row key={i} accent={accent} tint={GENS[i].c} ok={free || c <= s.mass} onClick={() => buyGen(i)}
                   title={GENS[i].n} sub={GENS[i].d} right={owned ? `${owned}` : ''}
                   cost={`${free ? 'free' : `${fmt(c)} kg`}${n > 1 ? ` · ${n}×` : ''}`}
-                  note={owned
-                    ? `+${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} in ${toMs}`
-                    : `+${fmt(GENS[i].prod * upMult(s))} kg/s each`}
+                  note={`This purchase: +${fmt(addedOutput)} kg/s · Current: ${fmt(genOutput(s, i) * upMult(s))} kg/s · ×${GENS[i].m} milestone in ${toMs} levels`}
                 />
               );
             })}
@@ -1560,13 +1587,15 @@ export default function Accretion() {
               : `Each pull takes +${(BALANCE.tapStep * 100).toFixed(1)}% of a second's output`}
             right={`lv ${s.tap} / ${BALANCE.tapLevels}`}
             cost={tapMaxed(s) ? 'Maxed' : devFree(s) ? 'free' : `${fmt(tapCost(s))} kg`}
-            note={`pull = ${fmt(tapGain(s))} kg · ${(tapShare(s) * 100).toFixed(1)}% of a second`} />
+            note={`Per pull: ${fmt(tapGain(s))} kg · ${(tapShare(s) * 100).toFixed(1)}% of a second${
+              tapMaxed(s) ? '' : ` → ${(tapShare({ ...s, tap: s.tap + 1 }) * 100).toFixed(1)}%`}`} />
 
           {openUps.map((i) => (
             <Row key={i} accent={accent} tint={UPGRADES[i].c} onClick={() => buyUp(i)}
               ok={devFree(s) || UPGRADES[i].cost <= s.mass}
               title={UPGRADES[i].n} sub={UPGRADES[i].d}
-              cost={devFree(s) ? 'free' : `${fmt(UPGRADES[i].cost)} kg`} note={`×${UPGRADES[i].mult} to everything`} />
+              cost={devFree(s) ? 'free' : `${fmt(UPGRADES[i].cost)} kg`}
+              note={`×${UPGRADES[i].mult} accretor production · +${fmt(perSec * (UPGRADES[i].mult - 1))} kg/s · +${fmt(perSec * (UPGRADES[i].mult - 1) * tapShare(s))} kg/pull; base pull unchanged`} />
           ))}
 
           <div style={{ padding: '10px 11px', borderRadius: 12, background: 'rgba(255,255,255,.035)', border: '1px solid rgba(255,255,255,.07)' }}>
@@ -1575,7 +1604,7 @@ export default function Accretion() {
               <span style={{ color: SHARD_C }}>{s.shards} shards</span>
             </div>
             <div className="ac-row-s">
-              Once you are supermassive you can collapse back to hydrogen. Everything resets except shards. Every shard you have ever earned raises output, with diminishing returns towards ×{BALANCE.shardCap} — you are at ×{shardMult(s).toFixed(2)} now. They also buy the perks below.
+              Once you are supermassive you can collapse back to hydrogen. Mass, accretors, and physics upgrades reset. You keep shards and purchased perks. Each shard ever earned raises production with diminishing returns towards ×{BALANCE.shardCap} — you are at ×{shardMult(s).toFixed(2)} now, including the production-based part of pulls. Spending shards does not reduce this bonus.
             </div>
             {s.stage >= PRESTIGE_AT ? (
               <button className="ac-btn" style={{ background: accent }} onClick={() => setConfirm(true)}>
@@ -1683,7 +1712,8 @@ export default function Accretion() {
             <div className="ac-tier" style={{ color: accent }}>You kept accreting</div>
             <div className="ac-blurb" style={{ marginTop: 6 }}>
               {Math.floor(welcome.dt / 3600)}h {Math.floor((welcome.dt % 3600) / 60)}m away.
-              {welcome.capped ? ' Offline growth is capped by how long you were gone — longer away, further carried.' : ''}
+              {welcome.timeCapped ? ` Only the first ${BALANCE.offlineCapH} hours earned offline mass.` : ''}
+              {welcome.massCapped ? ' Earnings reached the offline mass cap.' : ''}
             </div>
             <div className="ac-mass" style={{ fontSize: 22, marginTop: 10 }}>+{fmt(welcome.gain)} kg</div>
             <button className="ac-btn" style={{ background: accent }} onClick={() => setWelcome(null)}>Keep going</button>
