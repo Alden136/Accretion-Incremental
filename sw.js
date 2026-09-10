@@ -1,6 +1,6 @@
 /* Cache-first app shell. Bump CACHE when you rebuild so the phone picks it up. */
-const CACHE = 'accretion-v3-upgrade-info';
-const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest',
+const CACHE = 'accretion-v11';
+const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon.svg',
                './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', (e) => {
