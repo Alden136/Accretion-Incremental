@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 
 /* ============================================================
    ACCRETION — an incremental game about mass
@@ -1140,6 +1140,16 @@ export default function Accretion() {
   const ready = useRef(false);
   const [, render] = useState(0);
   const [tab, setTab] = useState('gen');
+  /* Each tab renders its own .ac-list, so switching unmounts one scroller and
+     mounts another at the top. Remember where each tab was left. The game loop
+     re-renders ~12x a second but does not remount the list, so scrollTop
+     survives those on its own; only a tab change needs restoring. */
+  const listEl = useRef(null);
+  const scrollPos = useRef({});
+  useLayoutEffect(() => {
+    if (listEl.current) listEl.current.scrollTop = scrollPos.current[tab] || 0;
+  }, [tab]);
+  const onListScroll = (e) => { scrollPos.current[tab] = e.currentTarget.scrollTop; };
   const [amt, setAmt] = useState(1);
   const [pops, setPops] = useState([]);
   const [welcome, setWelcome] = useState(null);
@@ -1315,6 +1325,7 @@ export default function Accretion() {
       taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum, dev: s.dev,
     });
     SFX.humStage(0);
+    scrollPos.current = {};
     setConfirm(false); setTab('gen'); save(); render((x) => x + 1);
   };
 
@@ -1418,6 +1429,7 @@ export default function Accretion() {
       SFX.setOn(loaded.sfx);
       SFX.hum(loaded.hum && loaded.sfx, loaded.stage);
       SFX.upgrade();
+      scrollPos.current = {};
       setIo(null); setTab('gen'); setWipe(false);
       save(); render((x) => x + 1);
     } catch (e) {
@@ -1597,7 +1609,7 @@ export default function Accretion() {
                 onClick={() => setAmt(v)}>{l}</button>
             ))}
           </div>
-          <div className="ac-list">
+          <div className="ac-list" ref={listEl} onScroll={onListScroll}>
             {visible.map((i) => {
               const owned = s.gens[i];
               const free = devFree(s);
@@ -1622,7 +1634,7 @@ export default function Accretion() {
       )}
 
       {tab === 'up' && (
-        <div className="ac-list">
+        <div className="ac-list" ref={listEl} onScroll={onListScroll}>
           <Row accent={accent} tint="#fcd34d" ok={!tapMaxed(s) && (devFree(s) || tapCost(s) <= s.mass)} onClick={buyTap}
             title="Capture cross-section"
             sub={tapMaxed(s)
@@ -1676,7 +1688,7 @@ export default function Accretion() {
       )}
 
       {tab === 'stat' && (
-        <div className="ac-list">
+        <div className="ac-list" ref={listEl} onScroll={onListScroll}>
           {[
             ['Heaviest reached', `${fmt(s.best)} kg`],
             ['Stages passed', `${s.stage + 1} of ${TIERS.length}`],
