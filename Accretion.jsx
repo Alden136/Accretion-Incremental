@@ -206,6 +206,11 @@ const PERKS = [
    The rest only ever add, so they have nothing to pause. */
 const AUTO_PERK = 6;
 
+/* played carries across a collapse, so this counts a lifetime, not a run. It
+   is also the hidden dev-mode tap target, and naming it once keeps the label
+   and that check from drifting apart. */
+const PLAY_STAT = 'Time played';
+
 /* ---------- number formatting ---------- */
 const SUPS = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
 const sup = (s) => String(s).split('').map((c) => SUPS[c] || c).join('');
@@ -215,7 +220,19 @@ function fmt(n) {
   if (n === 0) return '0';
   const e = Math.floor(Math.log10(Math.abs(n)));
   if (e >= -2 && e < 4) return n.toFixed(Math.max(0, Math.min(4, 2 - e)));
-  return `${(n / Math.pow(10, e)).toFixed(2)}×10${sup(e)}`;
+  /* toFixed rounds the mantissa, and anything from 9.995 up rounds to "10.00"
+     -- which printed 10.00×10²⁰ instead of 1.00×10²¹. The mass counter crosses
+     that window at every decade of an eighty-decade ladder, so carry into the
+     exponent instead. */
+  const x = e + (Math.abs(n) / Math.pow(10, e) >= 9.995 ? 1 : 0);
+  return `${(n / Math.pow(10, x)).toFixed(2)}×10${sup(x)}`;
+}
+
+/* Runs pass eight hours, so minutes alone stopped being a sensible unit. */
+function dur(sec) {
+  const t = Math.max(0, Math.floor(sec));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m ${t % 60}s`;
 }
 
 function altMass(kg) {
@@ -546,19 +563,28 @@ const shardsFrom = (mass) =>
    storage and a pasted save code go through identical checks. */
 const SAVE_VER = 6;
 
+/* Infinity is the one bad value that survived the old `Number(x) || 0` guard:
+   NaN is falsy and became 0, but Infinity is truthy and passed straight
+   through. JSON.parse turns an overflowing literal like 1e400 into Infinity,
+   so a hand-edited save code reached normalize with mass = Infinity -- and
+   genMax then returned NaN, which slipped past buyGen's `n < 1` and
+   `c > s.mass` guards (both false for NaN) and wrote NaN into mass and gens. */
+const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
+
 const normalize = (v) => {
   const s = { ...newGame(), ...v };
-  s.gens = GENS.map((_, i) => Math.max(0, Math.floor(Number(v.gens?.[i]) || 0)));
+  s.gens = GENS.map((_, i) => Math.max(0, Math.floor(num(v.gens?.[i]))));
   s.ups = UPGRADES.map((_, i) => !!v.ups?.[i]);
-  s.mass = Math.max(0, Number(s.mass) || 0);
-  s.best = Math.max(Number(s.best) || 0, s.mass);
-  s.tap = clamp(Math.floor(Number(s.tap) || 0), 0, BALANCE.tapLevels);
-  s.shards = Math.max(0, Math.floor(Number(s.shards) || 0));
-  s.shardsTotal = Math.max(Math.floor(Number(v.shardsTotal) || 0), s.shards);
+  s.mass = Math.max(0, num(s.mass));
+  s.best = Math.max(num(s.best), s.mass);
+  s.tap = clamp(Math.floor(num(s.tap)), 0, BALANCE.tapLevels);
+  s.shards = Math.max(0, Math.floor(num(s.shards)));
+  s.shardsTotal = Math.max(Math.floor(num(v.shardsTotal)), s.shards);
   s.perks = PERKS.map((_, i) => !!v.perks?.[i]);
-  s.collapses = Math.max(0, Math.floor(Number(s.collapses) || 0));
-  s.taps = Math.max(0, Math.floor(Number(s.taps) || 0));
-  s.played = Math.max(0, Number(s.played) || 0);
+  s.collapses = Math.max(0, Math.floor(num(s.collapses)));
+  s.taps = Math.max(0, Math.floor(num(s.taps)));
+  s.played = Math.max(0, num(s.played));
+  s.lastSave = num(v.lastSave, 0) > 0 ? num(v.lastSave) : Date.now();
   s.sfx = v.sfx !== false;
   s.auto = v.auto !== false;   // pausing is deliberate; absent means never paused
   s.hum = !!v.hum;
@@ -1394,6 +1420,7 @@ export default function Accretion() {
      the cadence follows real elapsed time rather than the frame rate, and so
      firing one costs no re-render beyond the loop's own. */
   const autoPull = useRef(0);
+  const flashTimer = useRef(null);
   const [amt, setAmt] = useState(1);
   const [pops, setPops] = useState([]);
   const [welcome, setWelcome] = useState(null);
@@ -1403,6 +1430,11 @@ export default function Accretion() {
   const [savedAt, setSavedAt] = useState(null);
   const [storageOk, setStorageOk] = useState(true);
   const [io, setIo] = useState(null);
+
+  /* "Start over" arms on the first tap and erases on the second. It used to
+     stay armed for the rest of the session, so leaving the tab and coming back
+     much later left a single tap standing between the player and a wipe. */
+  useEffect(() => { setWipe(false); }, [tab]);
 
   const stars = useMemo(
     () => Array.from({ length: 70 }, () => ({
@@ -1457,7 +1489,8 @@ export default function Accretion() {
       SFX.stageUp(st);
       SFX.humStage(st);
       setFlash(TIERS[st]);
-      setTimeout(() => setFlash(null), 3200);
+      clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlash(null), 3200);
     }
   };
 
@@ -1584,7 +1617,9 @@ export default function Accretion() {
 
   const collapse = () => {
     const got = shardsFrom(s.best);
-    if (got < 1) return;
+    // shardsFrom reaches 1 at ~4e32 kg, thousands of times below the prestige
+    // threshold, so the shard count alone is not the gate the UI implies
+    if (s.stage < PRESTIGE_AT || got < 1) return;
     SFX.collapse();
     G.current = applyPerks({
       ...newGame(),
@@ -1990,9 +2025,9 @@ export default function Accretion() {
             ['Pulls', `${s.taps}`],
             ['Collapses', `${s.collapses}`],
             ['Shards earned', `${s.shardsTotal || 0}`],
-            ['Time in this universe', `${Math.floor(s.played / 60)}m ${Math.floor(s.played % 60)}s`],
+            [PLAY_STAT, dur(s.played)],
           ].map(([k, v]) => (
-            <div key={k} onClick={k === 'Time in this universe' ? nudgeDev : undefined}
+            <div key={k} onClick={k === PLAY_STAT ? nudgeDev : undefined}
               style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 11px', fontSize: 12.5 }}>
               <span style={{ color: '#7d8ca8' }}>{k}</span>
               <span style={{ fontVariantNumeric: 'tabular-nums', color: k === 'Shards earned' ? SHARD_C : accent }}>{v}</span>
@@ -2010,7 +2045,7 @@ export default function Accretion() {
             <button className="ac-tab" onClick={() => { SFX.click(); setIo({ mode: 'import', text: '', msg: '' }); }}>Import</button>
           </div>
           <button className="ac-tab" style={{ marginTop: 2 }}
-            onClick={() => { if (wipe) { G.current = newGame(); SFX.hum(false); setWipe(false); save(); } else setWipe(true); }}>
+            onClick={() => { if (wipe) { G.current = newGame(); SFX.hum(false); setWipe(false); scrollPos.current = {}; save(); } else setWipe(true); }}>
             {wipe ? 'Tap again to erase everything' : 'Start over'}
           </button>
 
@@ -2102,7 +2137,7 @@ export default function Accretion() {
             <div className="ac-tier" style={{ color: accent }}>Collapse the universe?</div>
             <div className="ac-blurb" style={{ marginTop: 6 }}>
               Everything returns to a single hydrogen atom. You keep {s.shards + shardsFrom(s.best)} shards,
-              worth ×{fmt(1 + BALANCE.shardValue * ((s.shardsTotal || 0) + shardsFrom(s.best)))} output on the next run, and spendable on perks.
+              worth ×{shardMult({ shardsTotal: (s.shardsTotal || 0) + shardsFrom(s.best) }).toFixed(2)} output on the next run, and spendable on perks.
             </div>
             <button className="ac-btn" style={{ background: accent }} onClick={collapse}>Collapse</button>
             <button className="ac-tab" style={{ width: '100%', marginTop: 8 }} onClick={() => setConfirm(false)}>Not yet</button>
