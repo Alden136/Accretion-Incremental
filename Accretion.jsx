@@ -127,7 +127,7 @@ const TIERS = [
      instead of feeding the hole. So the ladder stops being one object
      and becomes bound structure. Masses include dark matter halos. */
   { n: 'Spiral galaxy',      at: 3e42,    k: 'galaxy',  c: ['#bfdbfe', '#1e3a8a'], d: 'Milky Way-class. A hundred billion stars around your hole.' },
-  { n: 'Giant elliptical',   at: 2e44,    k: 'blob',    c: ['#fde68a', '#78350f'], d: 'IC 1101: a hundred trillion suns, and no arms left to speak of.' },
+  { n: 'Giant elliptical galaxy', at: 2e44, k: 'elliptical', c: ['#fde68a', '#78350f'], d: 'IC 1101: a hundred trillion suns, and no arms left to speak of.' },
   { n: 'Galaxy cluster',     at: 2.4e45,  k: 'cluster', c: ['#a5b4fc', '#312e81'], d: 'Virgo-class. A thousand galaxies falling toward one centre.' },
   { n: 'Supercluster',       at: 2e47,    k: 'cluster', c: ['#c4b5fd', '#4c1d95'], d: 'Laniakea. Everything here is already flowing inward.' },
   { n: 'Cosmic filament',    at: 4e48,    k: 'web',     c: ['#93c5fd', '#1e40af'], d: 'The Sloan Great Wall: a billion light years of strung-together clusters.' },
@@ -654,6 +654,47 @@ const GALAXY = (() => {
   return { lane, stars };
 })();
 
+/* ---------- giant elliptical ----------
+   An elliptical's defining feature is the ABSENCE of structure -- no arms, no
+   disk, no lanes -- so the art cannot lean on shape and has to make the light
+   profile itself worth looking at.
+
+   The profile is de Vaucouleurs, r^(1/4): a tiny ferocious core and a huge
+   faint envelope, quite unlike the even smudge this replaced. It is a stack of
+   nested soft ellipses rather than one steep gradient, because every layer
+   fades out well inside its own box and the stack therefore has no rim
+   anywhere -- a single multi-stop gradient always showed an edge where its
+   last stop landed.
+
+   Colour is "red and dead": every star is old, so no blue and no hot orange
+   either. The tier before is a blue spiral this has to read differently from
+   at a glance, and the tier after is a cluster of separate blobs, which is why
+   the globulars stay tiny, tight, and subordinate to one obvious body. */
+const ELL_SHELLS = [
+  [1.40, '#64421e', 0.13], [1.24, '#6f4a22', 0.14], [1.09, '#7b5427', 0.15],
+  [0.95, '#885e2c', 0.17], [0.82, '#986a33', 0.18], [0.70, '#a9793c', 0.20],
+  [0.59, '#bb8a47', 0.22], [0.49, '#cc9d57', 0.25], [0.40, '#dcb06c', 0.28],
+  [0.32, '#e9c286', 0.32], [0.25, '#f3d5a4', 0.37], [0.19, '#fae5c4', 0.44],
+  [0.14, '#fdf1de', 0.52],
+];
+const ELL_Q = 0.68;
+const ELL_GLOBS = (() => {
+  let seed = 77123;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const out = [], spread = 0.46;
+  for (let i = 0; i < 46; i++) {
+    const th = rnd() * 2 * Math.PI;
+    // globulars trace the halo, and the halo is centrally peaked, so they
+    // concentrate inward rather than filling the box evenly
+    const rr = Math.pow(rnd(), 0.55) * spread;
+    out.push({
+      x: 50 + rr * 100 * Math.cos(th), y: 50 + rr * 100 * Math.sin(th) * ELL_Q,
+      t: rr / spread, s: 0.5 + rnd() * 0.8, w: rnd() < 0.22,
+    });
+  }
+  return out;
+})();
+
 /* Old stars in the bulge are yellow, young ones out in the arms are blue. That
    one colour gradient is the most recognisable thing about a spiral galaxy --
    it does more work here than any amount of added detail. */
@@ -1162,17 +1203,54 @@ const Body = memo(function Body({ tier, size }) {
     );
   }
 
-  if (tier.k === 'blob') {
+  if (tier.k === 'elliptical') {
+    const tilt = -14, q = ELL_Q;
     return (
       <div className="ac-body" style={s}>
-        <div className="ac-corona" style={{
-          width: size * 1.1, height: size * 0.85,
-          background: `radial-gradient(ellipse, ${a}44 25%, transparent 70%)`,
-        }} />
         <div style={{
-          width: size * 0.86, height: size * 0.64, borderRadius: '50%',
-          background: `radial-gradient(ellipse at 45% 42%, #fff 4%, ${a} 32%, ${b} 78%, transparent)`,
-          filter: 'blur(2px)', transform: 'rotate(-12deg)',
+          position: 'absolute', width: size * 1.42, height: size * 1.42 * q,
+          borderRadius: '50%', transform: `rotate(${tilt}deg)`,
+          background: 'radial-gradient(#c8934c10 0%, #6b431c0c 46%, transparent 72%)',
+        }} />
+        {ELL_SHELLS.map(([d, c, op], i) => (
+          <div key={`e${i}`} style={{
+            position: 'absolute', width: size * d, height: size * d * q,
+            borderRadius: '50%', opacity: op, transform: `rotate(${tilt}deg)`,
+            background: `radial-gradient(${c}, transparent 74%)`,
+          }} />
+        ))}
+        <div className="ac-slowspin" style={{
+          position: 'absolute', inset: 0, animationDuration: '70s',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {ELL_GLOBS.map((g, i) => {
+            const d = Math.max(1, size * 0.0095 * g.s), c = g.w ? '#fff6e2' : '#ffdb9a';
+            return (
+              <div key={`g${i}`} style={{
+                position: 'absolute', left: `${g.x}%`, top: `${g.y}%`, width: d, height: d,
+                margin: `${-d / 2}px 0 0 ${-d / 2}px`, borderRadius: '50%', background: c,
+                opacity: 0.9 - g.t * 0.45, boxShadow: `0 0 ${d * 1.7}px ${c}66`,
+              }} />
+            );
+          })}
+          {/* two companions part-way through being eaten. IC 1101 is a
+              cluster-dominant cannibal, and this is the one kind of structure
+              an elliptical really does show. */}
+        </div>
+        {[[24, 31, 0.075, 0.38, -34], [76, 70, 0.055, 0.28, 14]].map(([x, y, w, op, rot], i) => (
+          <div key={`c${i}`} style={{
+            position: 'absolute', left: `${x}%`, top: `${y}%`,
+            width: size * w, height: size * w * 0.55,
+            margin: `${-size * w * 0.275}px 0 0 ${-size * w / 2}px`, borderRadius: '50%',
+            opacity: op, transform: `rotate(${rot}deg)`,
+            background: 'radial-gradient(#ffeccb 0%, #c9924a 44%, transparent 76%)',
+          }} />
+        ))}
+        <div style={{
+          position: 'absolute', width: size * 0.11, height: size * 0.11 * 0.82,
+          borderRadius: '50%', transform: `rotate(${tilt}deg)`,
+          background: 'radial-gradient(#ffffff 20%, #fff7e2 46%, #ffe0a033 70%, transparent 86%)',
+          boxShadow: `0 0 ${size * 0.12}px #ffeaba88, 0 0 ${size * 0.3}px #a0682c55`,
         }} />
       </div>
     );
