@@ -23,8 +23,15 @@ import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, mem
      production multipliers. Production is the only source of mass,
      and every price is denominated in mass, so a permanent global
      multiplier of x divides the whole run length by exactly x.
-     That is why the shard bonus is capped (see shardCap): at the
-     old +15%/shard, one collapse ended the game in four minutes.
+     The shard bonus is the only permanent one, and it is bought
+     rather than granted: every level costs 45% more shards than
+     the last while giving the same +15%, so the EFFECT never
+     diminishes but the pace does. That geometric cost is what
+     keeps it safe -- an early version handed out +15% per shard
+     earned, free, and one collapse ended the game in four minutes.
+     A saturating free bonus fixed that but walled out at x3 and
+     made late shards worthless; this trades the wall for a cost
+     curve, and makes shards a choice between raw speed and perks.
    - Stage bonus and offline windfall are fractions of the gap to
      the NEXT stage, never fixed multipliers: a fixed x1.4 was 4% of
      an early gap and 47% of the Sun-to-neutron-star gap. The gap is
@@ -69,9 +76,9 @@ const BALANCE = {
   offlineCapH: 8,
   shardRate: 2,
   shardPower: 0.07,
-  shardValue: 0.06,   // shape of the shard production bonus
-  shardCap: 3,        // ...which can never exceed this. See the note above:
-                      // an uncapped multiplier is a direct divisor on run length.
+  densBase: 2,        // the first density level costs this many shards...
+  densGrowth: 1.45,   // ...and each one after it costs this much more again
+  densStep: 1.15,     // and each one multiplies output by this, compounding
 };
 
 const ATOM = 1.67e-27;
@@ -427,7 +434,7 @@ const SFX = (() => {
 /* ---------- game math ---------- */
 const newGame = () => ({
   mass: 0, best: 0, stage: 0, gens: GENS.map(() => 0), ups: UPGRADES.map(() => false),
-  tap: 0, shards: 0, shardsTotal: 0, perks: PERKS.map(() => false),
+  tap: 0, shards: 0, shardsTotal: 0, dens: 0, perks: PERKS.map(() => false),
   collapses: 0, taps: 0, played: 0, lastSave: Date.now(),
   sfx: true, hum: false, dev: false, auto: true,
 });
@@ -480,14 +487,27 @@ const stageFor = (best) => {
   return i;
 };
 
-/* Shards saturate towards shardCap and never pass it. Production is the
-   only source of mass and every price is in mass, so the whole run is
-   just time-rescaled by a global multiplier: x5 output is a five-times
-   shorter game, exactly. Unbounded (+15% a shard, x5 after one collapse)
-   that ended the game in four minutes on the second run. */
-const shardMult = (s) => {
-  const c = BALANCE.shardCap;
-  return c - (c - 1) / (1 + BALANCE.shardValue * (s.shardsTotal || 0));
+/* Primordial density: the one permanent production multiplier, and the only
+   thing in the game you buy with shards besides perks. Each level compounds,
+   so the return never tapers -- level forty is worth exactly as much as level
+   one. What tapers is how fast you can afford them, because the cost grows
+   45% a level against a shard income that only grows with the multiplier
+   itself. Five levels come out of a first full run (x2.01), the old x3 wall
+   falls around level eight, and it keeps paying from there without ever
+   turning into a divisor that collapses the game: reaching x16 is roughly
+   190 hours of play. */
+const shardMult = (s) => Math.pow(BALANCE.densStep, s.dens || 0);
+const densCost = (s) => Math.ceil(BALANCE.densBase * Math.pow(BALANCE.densGrowth, s.dens || 0));
+/* What a pile of shards is actually worth from where you stand. Shards buy
+   nothing by themselves now, so the collapse dialog quotes levels, not a
+   multiplier it would otherwise be promising for free. */
+const densLevelsFor = (s, shards) => {
+  let n = 0, left = shards;
+  for (;;) {
+    const c = densCost({ dens: (s.dens || 0) + n });
+    if (c > left || n > 400) return n;
+    left -= c; n++;
+  }
 };
 
 const upMult = (s) =>
@@ -561,7 +581,7 @@ const shardsFrom = (mass) =>
 /* ---------- save handling ----------
    normalize() is the single place a save is validated, so a file from
    storage and a pasted save code go through identical checks. */
-const SAVE_VER = 6;
+const SAVE_VER = 7;
 
 /* Infinity is the one bad value that survived the old `Number(x) || 0` guard:
    NaN is falsy and became 0, but Infinity is truthy and passed straight
@@ -580,6 +600,17 @@ const normalize = (v) => {
   s.tap = clamp(Math.floor(num(s.tap)), 0, BALANCE.tapLevels);
   s.shards = Math.max(0, Math.floor(num(s.shards)));
   s.shardsTotal = Math.max(Math.floor(num(v.shardsTotal)), s.shards);
+  /* v6 and earlier had no density track: the multiplier was free, derived from
+     every shard ever earned, and saturated towards x3. Grant whatever number
+     of levels covers what that save already had, so nobody loses output they
+     were playing with -- rounded up, so nobody loses any of it. Keyed on the
+     field being absent, which makes it idempotent: once dens exists it is
+     read, never recomputed. The clamp is validation, not a design cap; the
+     cost curve puts level 400 thousands of hours past anything reachable, and
+     it only exists so a corrupt save cannot make the multiplier Infinity. */
+  s.dens = v.dens === undefined
+    ? Math.ceil(Math.log(3 - 2 / (1 + 0.06 * s.shardsTotal)) / Math.log(BALANCE.densStep))
+    : clamp(Math.floor(num(v.dens)), 0, 400);
   s.perks = PERKS.map((_, i) => !!v.perks?.[i]);
   s.collapses = Math.max(0, Math.floor(num(s.collapses)));
   s.taps = Math.max(0, Math.floor(num(s.taps)));
@@ -1625,6 +1656,7 @@ export default function Accretion() {
       ...newGame(),
       shards: s.shards + got,
       shardsTotal: (s.shardsTotal || 0) + got,
+      dens: s.dens,
       perks: s.perks.slice(),
       collapses: s.collapses + 1,
       taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum, dev: s.dev, auto: s.auto,
@@ -1636,6 +1668,15 @@ export default function Accretion() {
     SFX.humStage(0);
     scrollPos.current = {};
     setConfirm(false); setTab('gen'); save(); render((x) => x + 1);
+  };
+
+  const buyDens = () => {
+    const c = devFree(s) ? 0 : densCost(s);
+    if (c > s.shards) return;
+    s.shards -= c;
+    s.dens = (s.dens || 0) + 1;
+    SFX.milestone();
+    save(); render((x) => x + 1);
   };
 
   const buyPerk = (i) => {
@@ -1977,7 +2018,7 @@ export default function Accretion() {
               <span style={{ color: SHARD_C }}>{s.shards} shards</span>
             </div>
             <div className="ac-row-s">
-              Once you are supermassive you can collapse back to hydrogen. Mass, accretors, and physics upgrades reset. You keep shards and purchased perks. Each shard ever earned raises production with diminishing returns towards ×{BALANCE.shardCap} — you are at ×{shardMult(s).toFixed(2)} now, including the production-based part of pulls. Spending shards does not reduce this bonus.
+              Once you are supermassive you can collapse back to hydrogen. Mass, accretors, and physics upgrades reset. You keep shards, purchased perks, and every level of density you have bought. Shards do nothing on their own — spend them below on density, which raises output for good, or on perks.
             </div>
             {s.stage >= PRESTIGE_AT ? (
               <button className="ac-btn" style={{ background: accent }} onClick={() => setConfirm(true)}>
@@ -1991,8 +2032,15 @@ export default function Accretion() {
           {(s.dev || s.shardsTotal > 0) && (
             <>
               <div className="ac-sub" style={{ padding: '8px 2px 2px' }}>
-                Shard perks · <span style={{ color: SHARD_C }}>{s.shards} to spend</span>
+                Spend shards · <span style={{ color: SHARD_C }}>{s.shards} to spend</span>
               </div>
+              <Row accent={accent} tint={SHARD_C} onClick={buyDens}
+                ok={devFree(s) || densCost(s) <= s.shards}
+                title="Primordial density"
+                sub="Collapse into a denser universe. Every level multiplies all output, and they compound."
+                right={`lv ${s.dens || 0}`}
+                cost={devFree(s) ? 'free' : `${densCost(s)} shards`}
+                note={`Now ×${shardMult(s).toFixed(2)} output · next level ×${shardMult({ dens: (s.dens || 0) + 1 }).toFixed(2)}, so the run after it is ${Math.round((1 - 1 / BALANCE.densStep) * 100)}% shorter`} />
               {PERKS.map((p, i) => {
                 /* An owned Self-assembly stays enabled so it can be switched
                    back on; every other owned perk is inert. */
@@ -2136,8 +2184,9 @@ export default function Accretion() {
           <div className="ac-card" onClick={(e) => e.stopPropagation()}>
             <div className="ac-tier" style={{ color: accent }}>Collapse the universe?</div>
             <div className="ac-blurb" style={{ marginTop: 6 }}>
-              Everything returns to a single hydrogen atom. You keep {s.shards + shardsFrom(s.best)} shards,
-              worth ×{shardMult({ shardsTotal: (s.shardsTotal || 0) + shardsFrom(s.best) }).toFixed(2)} output on the next run, and spendable on perks.
+              Everything returns to a single hydrogen atom. You keep density, perks, and {s.shards + shardsFrom(s.best)} shards
+              — enough for {densLevelsFor(s, s.shards + shardsFrom(s.best))} more {densLevelsFor(s, s.shards + shardsFrom(s.best)) === 1 ? 'level' : 'levels'} of
+              density, taking you to ×{shardMult({ dens: (s.dens || 0) + densLevelsFor(s, s.shards + shardsFrom(s.best)) }).toFixed(2)} output, or spend them on perks instead.
             </div>
             <button className="ac-btn" style={{ background: accent }} onClick={collapse}>Collapse</button>
             <button className="ac-tab" style={{ width: '100%', marginTop: 8 }} onClick={() => setConfirm(false)}>Not yet</button>

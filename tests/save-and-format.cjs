@@ -14,8 +14,8 @@ vm.runInContext(
   cut('/* ---------- number formatting', '/* ---------- audio') +
   cut('const newGame', '/* ---------- save handling') +
   cut('const SAVE_VER', '/* ---------- the object') +
-  ';globalThis.api = { fmt, dur, normalize, genMax, shardMult, BALANCE };', context);
-const { fmt, dur, normalize, genMax, shardMult, BALANCE } = context.api;
+  ';globalThis.api = { fmt, dur, normalize, genMax, shardMult, densCost, densLevelsFor, BALANCE };', context);
+const { fmt, dur, normalize, genMax, shardMult, densCost, densLevelsFor, BALANCE } = context.api;
 
 const SUPS = { '⁻': '-', '⁰': 0, '¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9 };
 
@@ -61,11 +61,29 @@ for (const v of hostile) {
   assert.ok(s.best >= s.mass, 'best must never sit below mass');
 }
 
-// The collapse dialog used to quote 1 + shardValue * total, the uncapped
-// formula the balance dropped. Nothing may promise more than the cap.
-for (const total of [0, 2, 27, 200, 500, 1e6]) {
-  const m = shardMult({ shardsTotal: total });
-  assert.ok(m >= 1 && m <= BALANCE.shardCap, `shardMult(${total}) = ${m}`);
+// Density is bought, not granted: nothing but s.dens may move the multiplier,
+// and it has to compound rather than taper.
+assert.equal(shardMult({ dens: 0 }), 1);
+assert.equal(shardMult({}), 1, 'a save with no dens field gets no free bonus');
+assert.equal(shardMult({ shardsTotal: 1e6 }), 1, 'shards earned must not grant output');
+for (let n = 1; n <= 60; n++) {
+  const step = shardMult({ dens: n }) / shardMult({ dens: n - 1 });
+  assert.ok(Math.abs(step - BALANCE.densStep) < 1e-9, `level ${n} stepped by ${step}`);
+  assert.ok(Number.isFinite(densCost({ dens: n })), `densCost(${n}) went non-finite`);
+  assert.ok(densCost({ dens: n }) > densCost({ dens: n - 1 }), 'cost must strictly rise');
+}
+// the clamp in normalize keeps a corrupt save from reaching Infinity
+assert.ok(Number.isFinite(shardMult(normalize({ mass: 1, gens: [], dens: 1e9 }))));
+assert.ok(Number.isFinite(densCost(normalize({ mass: 1, gens: [], dens: 1e9 }))));
+
+// v6 saves had a free saturating bonus; migration must not take output away
+for (const total of [0, 1, 5, 27, 60, 200, 1000]) {
+  const old = 3 - 2 / (1 + 0.06 * total);
+  const s = normalize({ mass: 1, gens: [], shardsTotal: total, shards: 0 });
+  assert.ok(shardMult(s) >= old - 1e-9,
+    `a v6 save at ${total} shards had x${old.toFixed(2)}, migration gives x${shardMult(s).toFixed(2)}`);
+  // and it must be idempotent: re-normalizing a migrated save changes nothing
+  assert.equal(normalize(s).dens, s.dens, 'migration re-ran on an already-migrated save');
 }
 
 assert.equal(dur(0), '0m 0s');
@@ -73,4 +91,4 @@ assert.equal(dur(90), '1m 30s');
 assert.equal(dur(3600), '1h 0m');
 assert.equal(dur(31337), '8h 42m');
 
-console.log('Save and format tests passed: mantissa carry, non-finite rejection, shard cap, durations.');
+console.log('Save and format tests passed: mantissa carry, non-finite rejection, density track, v6 migration, durations.');
