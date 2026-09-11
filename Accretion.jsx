@@ -195,6 +195,10 @@ const PERKS = [
   { n: 'Deep time',           d: 'Offline accretion runs at 80% instead of 50%, and its cap fills ~50% faster', cost: 8 },
   { n: 'Tidal capture',       d: 'Each pull adds 0.25 seconds of production instead of 0.1, plus its base mass',   cost: 22 },
   { n: 'Fossil metallicity',  d: 'Increases the one-time mass bonus at each new stage; the multiplier depends on the spacing to the following stage',   cost: 12 },
+  { n: 'Frozen physics',      d: 'Keep the first five physics upgrades you have bought through a collapse', cost: 10 },
+  { n: 'Long drift',          d: 'Offline accretion keeps earning for 24 hours away instead of 8',          cost: 14 },
+  { n: 'Self-assembly',       d: 'Buys the best-value accretor for you whenever you can afford it',         cost: 18 },
+  { n: 'Tidal resonance',     d: 'Pulls fire on their own, once a second, without you touching anything',   cost: 30 },
 ];
 
 /* ---------- number formatting ---------- */
@@ -412,8 +416,9 @@ const newGame = () => ({
    shows a DEV badge and it survives a collapse. */
 const devFree = (s) => !!s.dev;
 
-/* perks change these three constants; none of them compound with progress */
+/* perks change these offline constants; none of them compound with progress */
 const offlineRate = (s) => (s.perks[1] ? 0.8 : BALANCE.offlineRate);
+const offlineHours = (s) => (s.perks[5] ? 24 : BALANCE.offlineCapH);
 const offlineShare = (s) => (s.perks[1] ? BALANCE.offlineShareDeep : BALANCE.offlineShare);
 /* A pull is worth a share of a second's output — the only scale-free way
    to price it, since the ladder spans 78 decades. The upgrade moves that
@@ -441,7 +446,7 @@ const stageBonus = (s, i) => Math.pow(10, (s.perks[3] ? 0.22 : BALANCE.stageShar
    through eight of any absence earned nothing while the UI still advertised
    an eight-hour window. Eight hours is now worth ~1.5 stages, one hour ~0.2. */
 const offlineCap = (s, hours) =>
-  Math.pow(10, offlineShare(s) * gapAfter(s.stage) * clamp(hours, 0, BALANCE.offlineCapH));
+  Math.pow(10, offlineShare(s) * gapAfter(s.stage) * clamp(hours, 0, offlineHours(s)));
 const applyPerks = (s) => {
   if (s.perks[0]) { s.gens[0] = Math.max(s.gens[0], 20); s.gens[1] = Math.max(s.gens[1], 20); }
   return s;
@@ -478,7 +483,7 @@ const tapGain = (s) => ATOM * 3 * Math.pow(2, s.tap) + prod(s) * tapShare(s);
 const applyOffline = (s, now = Date.now()) => {
   const elapsed = Number.isFinite(s.lastSave) && s.lastSave > 0
     ? Math.max(0, (now - s.lastSave) / 1000) : 0;
-  const credited = Math.min(elapsed, BALANCE.offlineCapH * 3600);
+  const credited = Math.min(elapsed, offlineHours(s) * 3600);
   const raw = prod(s) * credited * offlineRate(s);
   const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s, credited / 3600) - 1));
   s.mass += gain;
@@ -495,6 +500,37 @@ const genMax = (i, count, mass) => {
   const base = GENS[i].cost * Math.pow(r, count);
   return Math.max(0, Math.floor(Math.log(1 + (mass * (r - 1)) / base) / Math.log(r)));
 };
+/* Self-assembly's planner. It scores every accretor by time-to-break-even
+   INCLUDING the wait to afford it, and buys only once the winner is already
+   affordable — so it saves up for a good one instead of sinking everything
+   into whatever is cheapest right now. Both a single level and a jump to the
+   next milestone are considered: crossing a multiple of milestoneEvery
+   multiplies that accretor by its m, so the bulk buy is usually the better
+   value and skipping it is not a small loss. Simulated over a full run,
+   single-level-only finishes in 21h against 7.9h with the milestone jump,
+   and 7.9h is where the balance target sits — the planner reaches the
+   designed pace rather than beating it. */
+const autoPick = (s) => {
+  const rate = prod(s) || 1e-300;
+  let best = null;
+  for (let i = 0; i < GENS.length; i++) {
+    const owned = s.gens[i];
+    const toMile = BALANCE.milestoneEvery - (owned % BALANCE.milestoneEvery);
+    for (const n of new Set([1, toMile])) {
+      const c = genCost(i, owned, n);
+      const before = genOutput(s, i);
+      s.gens[i] = owned + n;
+      const after = genOutput(s, i);
+      s.gens[i] = owned;
+      const dp = (after - before) * upMult(s);
+      if (dp <= 0) continue;
+      const score = Math.max(0, (c - s.mass) / rate) + c / dp;
+      if (!best || score < best.score) best = { score, i, n, c };
+    }
+  }
+  return best && best.c <= s.mass ? best : null;
+};
+
 const tapCost = (s) => BALANCE.tapBase * Math.pow(BALANCE.tapGrowth, s.tap);
 const tapMaxed = (s) => s.tap >= BALANCE.tapLevels;
 const shardsFrom = (mass) =>
@@ -1150,6 +1186,10 @@ export default function Accretion() {
     if (listEl.current) listEl.current.scrollTop = scrollPos.current[tab] || 0;
   }, [tab]);
   const onListScroll = (e) => { scrollPos.current[tab] = e.currentTarget.scrollTop; };
+  /* Tidal resonance fires a pull once a second. Kept as a ref accumulator so
+     the cadence follows real elapsed time rather than the frame rate, and so
+     firing one costs no re-render beyond the loop's own. */
+  const autoPull = useRef(0);
   const [amt, setAmt] = useState(1);
   const [pops, setPops] = useState([]);
   const [welcome, setWelcome] = useState(null);
@@ -1218,7 +1258,7 @@ export default function Accretion() {
   };
 
   useEffect(() => {
-    let raf, last = performance.now(), painted = 0, saved = 0;
+    let raf, last = performance.now(), painted = 0, saved = 0, bought = 0;
     const loop = (t) => {
       const dt = Math.min((t - last) / 1000, 1); last = t;
       if (!ready.current || document.hidden) {
@@ -1228,7 +1268,33 @@ export default function Accretion() {
       const s = G.current;
       s.mass += prod(s) * dt;
       s.played += dt;
+
+      /* Tidal resonance: a pull a second, silently. The real thing plays a
+         sound and throws a number up the screen; once a second forever that
+         would be unbearable, so the automated one only moves mass. */
+      if (s.perks[7]) {
+        autoPull.current += dt;
+        while (autoPull.current >= 1) { autoPull.current -= 1; s.mass += tapGain(s); s.taps++; }
+      } else {
+        autoPull.current = 0;
+      }
+
+      /* Bank the peak BEFORE Self-assembly gets to spend it. Stages are
+         gated on best, and an autobuyer that spends on the same tick the
+         threshold is crossed would hide that peak and stall the ladder. This
+         is also the order the balance was simulated in, so the stage bonus
+         lands first and is available to the purchase below. */
       if (s.mass > s.best) { s.best = s.mass; checkStage(s); }
+
+      /* Self-assembly. Throttled to four times a second: the planner walks
+         every accretor and the frame budget is better spent elsewhere, and the
+         simulated run time is identical at 4Hz and 60Hz anyway. */
+      if (s.perks[6] && t - bought > 250) {
+        bought = t;
+        const pick = autoPick(s);
+        if (pick) { s.mass -= pick.c; s.gens[pick.i] += pick.n; }
+      }
+
       if (t - painted > 80) { painted = t; render((x) => x + 1); }
       if (t - saved > 12000) { saved = t; save(); }
       raf = requestAnimationFrame(loop);
@@ -1324,6 +1390,10 @@ export default function Accretion() {
       collapses: s.collapses + 1,
       taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum, dev: s.dev,
     });
+    // Frozen physics keeps what you had, not a free five: hold three and you
+    // carry three. applyPerks cannot do this, since only collapse() can see
+    // both the old run and the new one.
+    if (s.perks[4]) for (let i = 0; i < 5; i++) G.current.ups[i] = s.ups[i];
     SFX.humStage(0);
     scrollPos.current = {};
     setConfirm(false); setTab('gen'); save(); render((x) => x + 1);
@@ -1767,7 +1837,7 @@ export default function Accretion() {
             <div className="ac-tier" style={{ color: accent }}>You kept accreting</div>
             <div className="ac-blurb" style={{ marginTop: 6 }}>
               {Math.floor(welcome.dt / 3600)}h {Math.floor((welcome.dt % 3600) / 60)}m away.
-              {welcome.timeCapped ? ` Only the first ${BALANCE.offlineCapH} hours earned offline mass.` : ''}
+              {welcome.timeCapped ? ` Only the first ${offlineHours(s)} hours earned offline mass.` : ''}
               {welcome.massCapped ? ' Earnings reached the offline mass cap.' : ''}
             </div>
             <div className="ac-mass" style={{ fontSize: 22, marginTop: 10 }}>+{fmt(welcome.gain)} kg</div>

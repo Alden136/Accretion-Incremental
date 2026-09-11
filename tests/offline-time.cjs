@@ -52,4 +52,26 @@ assert.equal(result.timeCapped, true);
 assert.equal(result.massCapped, true);
 const idle = state(3600); idle.gens[0] = 0;
 assert.equal(applyOffline(idle, now).gain, 0);
-console.log('Offline time tests passed: short absences, 8-hour boundary, 24 hours, both rates, replay protection, invalid clocks, and both caps.');
+
+// Long drift (perk 5) moves the time ceiling from 8 hours to 24. It is a
+// ceiling only: a shorter absence must credit exactly the same as without it,
+// and the mass cap has to follow the longer window rather than stay pinned at
+// the 8-hour value.
+for (const seconds of [3600, 28800, 28801, 86400, 86401, 172800]) {
+  const ceiling = 86400;
+  const s = state(seconds); s.perks[5] = true;
+  const result = applyOffline(s, now);
+  assert.equal(result.dt, seconds);
+  assert.equal(result.credited, Math.min(seconds, ceiling));
+  assert.equal(result.gain, prod(s) * Math.min(seconds, ceiling) * 0.5);
+  assert.equal(result.timeCapped, seconds > ceiling);
+  // the same absence without the perk must still stop at 8 hours
+  const plain = state(seconds);
+  assert.equal(applyOffline(plain, now).credited, Math.min(seconds, 28800));
+}
+// Long drift stacks with Deep time: 24-hour window at the 80% rate.
+const both = state(172800, true); both.perks[5] = true;
+const bothResult = applyOffline(both, now);
+assert.equal(bothResult.credited, 86400);
+assert.equal(bothResult.gain, prod(both) * 86400 * 0.8);
+console.log('Offline time tests passed: short absences, 8-hour boundary, 24 hours, both rates, Long drift\u2019s 24-hour ceiling, replay protection, invalid clocks, and both caps.');
