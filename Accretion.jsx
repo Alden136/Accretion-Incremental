@@ -200,6 +200,11 @@ const PERKS = [
   { n: 'Self-assembly',       d: 'Buys the best-value accretor for you whenever you can afford it',         cost: 18 },
   { n: 'Tidal resonance',     d: 'Pulls fire on their own, once a second, without you touching anything',   cost: 30 },
 ];
+/* Self-assembly is the one perk you can switch off after buying it: it is the
+   only one that SPENDS for you, so there are real moments -- saving for a
+   physics upgrade, holding mass to cross a stage -- when you want it to stop.
+   The rest only ever add, so they have nothing to pause. */
+const AUTO_PERK = 6;
 
 /* ---------- number formatting ---------- */
 const SUPS = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
@@ -407,7 +412,7 @@ const newGame = () => ({
   mass: 0, best: 0, stage: 0, gens: GENS.map(() => 0), ups: UPGRADES.map(() => false),
   tap: 0, shards: 0, shardsTotal: 0, perks: PERKS.map(() => false),
   collapses: 0, taps: 0, played: 0, lastSave: Date.now(),
-  sfx: true, hum: false, dev: false,
+  sfx: true, hum: false, dev: false, auto: true,
 });
 
 /* Developer mode: everything is free and nothing is hidden, so a build can be
@@ -555,6 +560,7 @@ const normalize = (v) => {
   s.taps = Math.max(0, Math.floor(Number(s.taps) || 0));
   s.played = Math.max(0, Number(s.played) || 0);
   s.sfx = v.sfx !== false;
+  s.auto = v.auto !== false;   // pausing is deliberate; absent means never paused
   s.hum = !!v.hum;
   s.dev = !!v.dev;
   s.stage = stageFor(s.best);
@@ -1146,24 +1152,27 @@ function Body({ tier, size }) {
   );
 }
 
-function Row({ title, sub, cost, right, ok, onClick, accent, note, tint }) {
+/* `ok` says whether the row can be pressed; `lit` says whether it looks live.
+   They are the same thing for every row but a paused Self-assembly, which has
+   to stay pressable (that is how you resume it) while reading as switched off. */
+function Row({ title, sub, cost, right, ok, onClick, accent, note, tint, lit = ok }) {
   const c = tint || accent;
   return (
     <button className="ac-row" onClick={onClick} disabled={!ok}
       style={{
-        borderColor: ok ? `${c}66` : 'rgba(255,255,255,.07)',
-        background: ok
+        borderColor: lit ? `${c}66` : 'rgba(255,255,255,.07)',
+        background: lit
           ? `linear-gradient(100deg, ${c}22, rgba(255,255,255,.04) 55%)`
           : 'rgba(255,255,255,.03)',
       }}>
-      <div className="ac-bead" style={{ background: c, boxShadow: ok ? `0 0 9px ${c}cc` : 'none' }} />
+      <div className="ac-bead" style={{ background: c, boxShadow: lit ? `0 0 9px ${c}cc` : 'none' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="ac-row-t">
           <span>{title}</span>
           {right ? <span style={{ color: c }}>{right}</span> : null}
         </div>
         <div className="ac-row-s">{sub}</div>
-        <div className="ac-row-c" style={{ color: ok ? c : '#5b6b87' }}>
+        <div className="ac-row-c" style={{ color: lit ? c : '#5b6b87' }}>
           {cost}{note ? <span className="ac-note">{note}</span> : null}
         </div>
       </div>
@@ -1289,7 +1298,7 @@ export default function Accretion() {
       /* Self-assembly. Throttled to four times a second: the planner walks
          every accretor and the frame budget is better spent elsewhere, and the
          simulated run time is identical at 4Hz and 60Hz anyway. */
-      if (s.perks[6] && t - bought > 250) {
+      if (s.perks[AUTO_PERK] && s.auto && t - bought > 250) {
         bought = t;
         const pick = autoPick(s);
         if (pick) { s.mass -= pick.c; s.gens[pick.i] += pick.n; }
@@ -1388,7 +1397,7 @@ export default function Accretion() {
       shardsTotal: (s.shardsTotal || 0) + got,
       perks: s.perks.slice(),
       collapses: s.collapses + 1,
-      taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum, dev: s.dev,
+      taps: s.taps, played: s.played, sfx: s.sfx, hum: s.hum, dev: s.dev, auto: s.auto,
     });
     // Frozen physics keeps what you had, not a free five: hold three and you
     // carry three. applyPerks cannot do this, since only collapse() can see
@@ -1456,6 +1465,12 @@ export default function Accretion() {
     s.sfx = !s.sfx;
     SFX.setOn(s.sfx);
     if (s.sfx) { SFX.click(); if (s.hum) SFX.hum(true, s.stage); }
+    save(); render((x) => x + 1);
+  };
+
+  const toggleAuto = () => {
+    s.auto = !s.auto;
+    SFX.click();
     save(); render((x) => x + 1);
   };
 
@@ -1618,6 +1633,11 @@ export default function Accretion() {
               <button className="on" onClick={() => setDev(false)} aria-label="Developer mode is on"
                 style={{ color: '#fca5a5', borderColor: '#fca5a566', background: '#fca5a51f' }}>dev</button>
             )}
+            {s.perks[AUTO_PERK] && (
+              <button className={s.auto ? 'on' : ''} onClick={toggleAuto}
+                aria-label={`Self-assembly is ${s.auto ? 'on' : 'off'}`} aria-pressed={s.auto}
+                style={s.auto ? { color: SHARD_C, borderColor: `${SHARD_C}66`, background: `${SHARD_C}1f` } : undefined}>auto</button>
+            )}
             <button className={s.sfx ? 'on' : ''} onClick={toggleSfx} aria-label="Sound effects"
               style={s.sfx ? { color: accent, borderColor: `${accent}66`, background: `${accent}1f` } : undefined}>sfx</button>
             <button className={s.sfx && s.hum ? 'on' : ''} onClick={toggleHum} aria-label="Ambient hum"
@@ -1745,13 +1765,22 @@ export default function Accretion() {
               <div className="ac-sub" style={{ padding: '8px 2px 2px' }}>
                 Shard perks · <span style={{ color: SHARD_C }}>{s.shards} to spend</span>
               </div>
-              {PERKS.map((p, i) => (
-                <Row key={i} accent={accent} tint={SHARD_C} onClick={() => buyPerk(i)}
-                  ok={!s.perks[i] && (devFree(s) || p.cost <= s.shards)}
-                  title={p.n} sub={p.d}
-                  right={s.perks[i] ? 'owned' : ''}
-                  cost={s.perks[i] ? 'Active' : devFree(s) ? 'free' : `${p.cost} shards`} />
-              ))}
+              {PERKS.map((p, i) => {
+                /* An owned Self-assembly stays enabled so it can be switched
+                   back on; every other owned perk is inert. */
+                const pausable = s.perks[i] && i === AUTO_PERK;
+                return (
+                  <Row key={i} accent={accent} tint={SHARD_C}
+                    onClick={() => (pausable ? toggleAuto() : buyPerk(i))}
+                    ok={pausable || (!s.perks[i] && (devFree(s) || p.cost <= s.shards))}
+                    lit={pausable ? s.auto : !s.perks[i] && (devFree(s) || p.cost <= s.shards)}
+                    title={p.n} sub={p.d}
+                    right={pausable ? (s.auto ? 'on' : 'paused') : s.perks[i] ? 'owned' : ''}
+                    cost={pausable
+                      ? (s.auto ? 'Buying for you · tap to pause' : 'Paused · tap to resume')
+                      : s.perks[i] ? 'Active' : devFree(s) ? 'free' : `${p.cost} shards`} />
+                );
+              })}
             </>
           )}
         </div>
