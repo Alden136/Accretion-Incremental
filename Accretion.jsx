@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, memo } from 'react';
 
 /* ============================================================
    ACCRETION — an incremental game about mass
@@ -593,7 +593,77 @@ const ago = (ms) => {
 };
 
 /* ---------- the object ---------- */
-function Body({ tier, size }) {
+/* ---------- spiral galaxy geometry ----------
+   Arms are a logarithmic spiral, r = r0*e^(b*theta) -- which is what real arms
+   are, b being the tangent of the pitch angle (~0.23, about 13 degrees, is
+   Milky-Way-like). This replaced a conic-gradient, and a conic gradient can
+   only produce straight radial wedges: a pinwheel, not a spiral.
+
+   Each arm is drawn twice. First a LANE of soft blobs stretched along the
+   local tangent, overlapping into one continuous ribbon -- an arm is a density
+   wave, lit between its stars, and a row of separate dots just reads as
+   confetti. Then STARS scattered tightly along the same curve, with a few pink
+   HII knots where the arm is still forming them.
+
+   Everything is computed face-on in percentages and the renderer squashes it
+   with scaleY, so the tangent angles come out right under the projection.
+   Positions are fixed, never random per render, or the galaxy would shimmer. */
+const GALAXY = (() => {
+  const A = { arms: 4, b: 0.23, r0: 0.076, turns: 1.3, lane: 18, stars: 20, field: 26,
+              thick: 0.26, scatter: 0.17 };
+  let seed = 20240611;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const maxT = A.turns * 2 * Math.PI;
+  const at = (th) => A.r0 * Math.exp(A.b * th);
+  const rMax = at(maxT);
+  const norm = (r) => Math.max(0, Math.min(1, (r - A.r0) / (rMax - A.r0)));
+  const lane = [], stars = [];
+  for (let a = 0; a < A.arms; a++) {
+    const phase = (a / A.arms) * 2 * Math.PI;
+    for (let i = 0; i < A.lane; i++) {
+      const f = i / (A.lane - 1), th = f * maxT, r = at(th), dth = maxT / (A.lane - 1);
+      lane.push({
+        x: 50 + r * 100 * Math.cos(th + phase), y: 50 + r * 100 * Math.sin(th + phase),
+        // overlap generously so blobs fuse instead of beading, and taper the
+        // last third -- an untapered tip reads as a streak flung off the rim
+        len: (r * dth * 2.6 + r * 0.18) * (1 - 0.22 * f * f),
+        wid: r * A.thick * (1 - 0.3 * f * f),
+        rot: (th + phase + Math.PI / 2 - Math.atan(A.b)) * 180 / Math.PI,
+        t: norm(r), f,
+      });
+    }
+    for (let i = 0; i < A.stars; i++) {
+      const f = Math.pow(rnd(), 0.75), th = f * maxT, r = at(th);
+      const off = (rnd() - 0.5) * 2;
+      const rr = r + off * Math.abs(off) * A.scatter * r;
+      const tt = th + phase + (rnd() - 0.5) * 0.34;
+      stars.push({
+        x: 50 + rr * 100 * Math.cos(tt), y: 50 + rr * 100 * Math.sin(tt),
+        t: norm(rr), s: 0.8 + rnd() * 0.75, hii: rnd() < 0.08 && f > 0.3,
+      });
+    }
+  }
+  for (let i = 0; i < A.field; i++) {
+    const th = rnd() * 2 * Math.PI;
+    const rr = A.r0 + Math.pow(rnd(), 0.55) * (rMax - A.r0) * 1.1;
+    stars.push({
+      x: 50 + rr * 100 * Math.cos(th), y: 50 + rr * 100 * Math.sin(th),
+      t: norm(rr), s: 0.45 + rnd() * 0.4, faint: true,
+    });
+  }
+  return { lane, stars };
+})();
+
+/* Old stars in the bulge are yellow, young ones out in the arms are blue. That
+   one colour gradient is the most recognisable thing about a spiral galaxy --
+   it does more work here than any amount of added detail. */
+const starTint = (t) => (t < 0.20 ? '#fff1cd' : t < 0.42 ? '#f0f2ff' : t < 0.70 ? '#cddcff' : '#a5c4ff');
+const laneTint = (t) => (t < 0.25 ? '#ffe6b0' : t < 0.55 ? '#cfd8f5' : '#9dbcf0');
+
+/* Body draws ~180 nodes for the galaxy and the game loop re-renders about
+   12 times a second. Both props are stable between stage changes, so memo
+   reconciles this once per stage instead of once per frame. */
+const Body = memo(function Body({ tier, size }) {
   const [a, b] = tier.c;
   const s = { width: size, height: size };
 
@@ -1030,16 +1100,63 @@ function Body({ tier, size }) {
   }
 
   if (tier.k === 'galaxy') {
+    const flat = 0.55, tilt = -20;
     return (
       <div className="ac-body" style={s}>
-        <div className="ac-spiral" style={{
-          width: size * 1.15, height: size * 0.5,
-          background: `conic-gradient(from 0deg, transparent 0deg, ${a}cc 40deg, transparent 110deg, ${b} 180deg, transparent 250deg, ${a}aa 290deg, transparent 360deg)`,
-        }} />
         <div style={{
-          width: size * 0.22, height: size * 0.1, borderRadius: '50%', zIndex: 3,
-          background: `radial-gradient(circle, #fff 15%, ${a} 60%, transparent)`,
-          boxShadow: `0 0 ${size * 0.3}px ${a}`, transform: 'rotate(-18deg)',
+          position: 'absolute', width: size * 1.2, height: size * 1.2 * flat,
+          transform: `rotate(${tilt}deg)`, borderRadius: '50%',
+          background: `radial-gradient(${a}18 34%, ${b}2e 58%, transparent 76%)`,
+        }} />
+        {/* the disk plane: the geometry is built face-on, this projects it */}
+        <div style={{
+          position: 'absolute', width: size, height: size,
+          transform: `rotate(${tilt}deg) scaleY(${flat})`,
+        }}>
+          <div className="ac-slowspin" style={{ position: 'absolute', inset: 0, animationDuration: '38s' }}>
+            <div style={{
+              position: 'absolute', left: '50%', top: '50%', width: size * 0.96, height: size * 0.96,
+              margin: `${-size * 0.48}px 0 0 ${-size * 0.48}px`, borderRadius: '50%',
+              background: 'radial-gradient(#e2ebff26 10%, #3c62b81a 44%, transparent 70%)',
+            }} />
+            {GALAXY.lane.map((p, i) => {
+              const w = size * p.len, h = size * p.wid, c = laneTint(p.t);
+              return (
+                <div key={`l${i}`} style={{
+                  position: 'absolute', left: `${p.x}%`, top: `${p.y}%`, width: w, height: h,
+                  margin: `${-h / 2}px 0 0 ${-w / 2}px`, transform: `rotate(${p.rot}deg)`,
+                  borderRadius: '50%', opacity: (0.66 - p.t * 0.22) * (1 - Math.pow(p.f, 2.4) * 0.72),
+                  background: `radial-gradient(${c}dd 0%, ${c}66 45%, ${c}00 76%)`,
+                }} />
+              );
+            })}
+            {GALAXY.stars.map((p, i) => {
+              const d = size * (p.hii ? 0.028 : 0.015) * p.s, c = p.hii ? '#f9a8d4' : starTint(p.t);
+              return (
+                <div key={`s${i}`} style={{
+                  /* pre-stretched so the parent's scaleY lands it round: a star
+                     is a point, its glow should not lie in the disk plane */
+                  position: 'absolute', left: `${p.x}%`, top: `${p.y}%`, width: d, height: d / flat,
+                  margin: `${-d / flat / 2}px 0 0 ${-d / 2}px`,
+                  opacity: p.faint ? 0.25 + p.s * 0.3 : p.hii ? 0.85 : 0.5 + (1 - p.t) * 0.42,
+                  background: `radial-gradient(${c} 0%, ${c}bb 32%, ${c}00 70%)`,
+                }} />
+              );
+            })}
+            {/* the bar. The Milky Way has one, and it seats the inner arms */}
+            <div style={{
+              position: 'absolute', left: '50%', top: '50%', width: size * 0.26, height: size * 0.135,
+              margin: `${-size * 0.0675}px 0 0 ${-size * 0.13}px`, borderRadius: '50%',
+              transform: 'rotate(-28deg)',
+              background: 'radial-gradient(#ffeec2aa 10%, #ffdd9955 46%, transparent 74%)',
+            }} />
+          </div>
+        </div>
+        <div style={{
+          position: 'absolute', width: size * 0.14, height: size * 0.14 * flat * 1.45,
+          borderRadius: '50%', transform: `rotate(${tilt}deg)`,
+          background: 'radial-gradient(#ffffff 18%, #fff4d2 44%, #ffd98a55 66%, transparent 80%)',
+          boxShadow: `0 0 ${size * 0.13}px #ffeec288, 0 0 ${size * 0.3}px #9dbcf044`,
         }} />
       </div>
     );
@@ -1150,7 +1267,7 @@ function Body({ tier, size }) {
       }} />
     </div>
   );
-}
+});
 
 /* `ok` says whether the row can be pressed; `lit` says whether it looks live.
    They are the same thing for every row but a paused Self-assembly, which has
@@ -1565,8 +1682,6 @@ export default function Accretion() {
         @keyframes breathe{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.12);opacity:1}}
         .ac-disk{position:absolute;border-radius:50%;filter:blur(5px);opacity:.92;animation:spin 3.4s linear infinite;
           mask:radial-gradient(circle,transparent 26%,#000 34%);-webkit-mask:radial-gradient(circle,transparent 26%,#000 34%)}
-        .ac-spiral{position:absolute;border-radius:50%;filter:blur(4px);opacity:.9;
-          animation:spin 14s linear infinite;transform:rotate(-18deg)}
         .ac-slowspin{animation:spin 40s linear infinite}
         .ac-beams{position:absolute;animation:spin 5s linear infinite}
         .ac-beams span{position:absolute;left:50%;width:3px;height:44%;margin-left:-1.5px;opacity:.7;filter:blur(1px)}
