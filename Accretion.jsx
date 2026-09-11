@@ -40,7 +40,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, mem
      boulder), which made one stage bonus x1.09 and another x3.98.
    - Global upgrades are a bounded set of ten, x58 in total.
    - The pull track is bounded too, but it is priced to run the whole
-     ladder: 37 levels, each +0.5% of a second's output, the last one
+     ladder: 40 levels, each +0.5% of a second's output, the last one
      costing about what the last global upgrade costs. It used to
      double a flat kg figure against a cost growing 8x, so it was dead
      weight by the third level while still asking to be bought; then it
@@ -69,9 +69,9 @@ const BALANCE = {
   gapMax: 3.0,        // this range, so neither a 0.31- nor a 5.0-decade step rules
   tapShare: 0.1,      // fraction of a second's output per tap
   tapStep: 0.005,     // each pull upgrade adds this much to that fraction
-  tapLevels: 37,      // over a track that spans the ladder, not the first minute
+  tapLevels: 40,      // over a track that spans the ladder, not the first minute
   tapBase: 1e-25,     // first pull upgrade costs this...
-  tapGrowth: 130,     // ...and each one after it costs this much more again
+  tapGrowth: 90,      // ...and each one after it costs this much more again
   offlineRate: 0.5,
   offlineCapH: 8,
   shardRate: 2,
@@ -455,15 +455,18 @@ const offlineShare = (s) => (s.perks[1] ? BALANCE.offlineShareDeep : BALANCE.off
    few seconds of a run, before anything is producing.
    The track is priced to last: at 8x a level it finished two minutes into
    an eight-hour run and then read "Maxed" for the rest of it, spanning
-   eight of the ladder's eighty decades. At 130x the last level costs
-   1.3e51 kg — about what the last global upgrade costs — so a level lands
+   eight of the ladder's eighty decades. At 90x the last level costs
+   1.6e51 kg — about what the last global upgrade costs — so a level lands
    roughly once a stage all the way to the end.
-   Growth sets where the track ENDS, so a level cannot simply be appended:
-   a 37th at the old 150x would have cost 2.2e53 kg, half again the mass of
-   the whole finished ladder, and could only be bought after the game had
-   told you there was nothing left to absorb. Widening from 36 levels to 37
-   means easing growth to 130x instead, which keeps both ends where they
-   were and fits the extra step in between. */
+   Levels and growth are one knob, not two: growth is what fixes where the
+   track ENDS, so a level can never simply be appended. Appending a 37th at
+   the old 150x would have cost 2.2e53 kg, half again the mass of the whole
+   finished ladder, buyable only after the game had said there was nothing
+   left to absorb. Widening the track therefore means easing growth to
+   match — 36 levels at 150x, then 37 at 130x, now 40 at 90x — which holds
+   both ends still and fits the extra steps in between. To move the count
+   again, solve tapBase * growth^(tapLevels-1) back to roughly the cost of
+   the last global upgrade. */
 const tapShare = (s) =>
   (s.perks[2] ? 0.25 : BALANCE.tapShare) +
   BALANCE.tapStep * Math.min(s.tap, BALANCE.tapLevels);
