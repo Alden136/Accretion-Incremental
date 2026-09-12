@@ -6,7 +6,7 @@ if (typeof window !== 'undefined' && !window.storage) {
   window.storage = {
     async get(key) {
       const value = localStorage.getItem(key);
-      if (value === null) throw new Error(`no such key: ${key}`);
+      if (value === null) { const error = new Error(`no such key: ${key}`); error.code = 'SAVE_NOT_FOUND'; throw error; }
       return { key, value, shared: false };
     },
     async set(key, value) {
