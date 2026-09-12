@@ -761,6 +761,46 @@ const ELL_GLOBS = (() => {
   return out;
 })();
 
+/* ---------- gas giant ----------
+   Bands are drawn as wide ellipses rather than a striped gradient. A circle of
+   latitude projects to an arc that is flat at the equator and bows harder
+   towards the poles, so each band is an ellipse whose width shrinks and whose
+   bow deepens with distance from the middle, clipped by the sphere. Straight
+   stripes sit on the disc like paint, which is exactly the flatness the brown
+   dwarf was redrawn to escape.
+
+   Widths are deliberately uneven. Jupiter's zones and belts are nothing like a
+   set of equal lanes, and equal ones read as a flag rather than a weather
+   system. [lat (-1 south to 1 north), thickness, colour, opacity] */
+const GAS_BANDS = [
+  [0.93, 0.11, '#8a5526', 0.85],    // north polar hood, brown and dim
+  [0.80, 0.06, '#f3dca8', 0.80],
+  [0.69, 0.09, '#a85f22', 0.92],
+  [0.56, 0.13, '#ffeec4', 0.95],
+  [0.41, 0.07, '#b96c26', 0.90],
+  [0.30, 0.06, '#f7e2b2', 0.85],
+  [0.19, 0.10, '#9c5119', 0.95],    // north equatorial belt, the darkest
+  [0.04, 0.16, '#fff5d8', 1.00],    // equatorial zone, the brightest
+  [-0.14, 0.11, '#a4561c', 0.95],   // south equatorial belt
+  [-0.31, 0.08, '#f3ddaa', 0.85],
+  [-0.44, 0.12, '#b2681f', 0.92],   // the belt the Red Spot rides in
+  [-0.60, 0.07, '#edd6a0', 0.80],
+  [-0.72, 0.09, '#9a5a22', 0.85],
+  [-0.88, 0.12, '#7d4d24', 0.85],   // south polar hood
+];
+/* eddies along the band edges, so the boundaries are not clean lines */
+const GAS_EDDIES = [
+  [58, 28, 16, 6, '#fff3d4', 0.5, 3], [12, 44, 13, 5, '#8a5020', 0.45, 3],
+  [66, 52, 18, 5, '#fff0cc', 0.4, 3.5], [38, 20, 12, 5, '#a86428', 0.4, 3],
+  [72, 74, 14, 5, '#f6dfa4', 0.35, 3],
+];
+/* the Galilean moons: what a Jupiter has instead of rings. Strung along one
+   tilted plane so they read as a system rather than as stray pixels. */
+const GAS_MOONS = [
+  [3.5, 61, 0.040, '#fde68a'], [16, 74, 0.028, '#cbb894'],
+  [96.5, 35, 0.035, '#f1dcae'], [84, 23, 0.026, '#e8d7b4'],
+];
+
 /* Old stars in the bulge are yellow, young ones out in the arms are blue. That
    one colour gradient is the most recognisable thing about a spiral galaxy --
    it does more work here than any amount of added detail. */
@@ -1020,16 +1060,65 @@ const Body = memo(function Body({ tier, size }) {
   /* Gas giant. Brown dwarf used to share this branch and no longer does, so
      this is the only tier drawing bands and a ring. */
   if (tier.k === 'gas') {
+    const sph = size * 0.82, H = sph * 0.93;   // gas giants are visibly flattened
     return (
       <div className="ac-body" style={s}>
-        <div className="ac-ring" style={{
-          width: size * 1.28, height: size * 0.36, borderColor: `${a}88`, transform: 'rotate(-16deg)',
-        }} />
         <div style={{
-          width: size * 0.8, height: size * 0.8, borderRadius: '50%', overflow: 'hidden',
-          background: `repeating-linear-gradient(172deg, ${a} 0 7%, ${b} 7% 13%, ${a}cc 13% 17%)`,
-          boxShadow: `inset -${size * 0.09}px -${size * 0.05}px ${size * 0.16}px rgba(0,0,0,.65), 0 0 ${size * 0.28}px ${b}55`,
-        }} />
+          position: 'relative', width: sph, height: H, borderRadius: '50%', overflow: 'hidden',
+          boxShadow: `0 0 ${size * 0.26}px ${b}55`, background: '#b9772f',
+        }}>
+          {GAS_BANDS.map(([lat, th, col, op], i) => {
+            // a latitude circle projects to a chord of width cos(lat); the
+            // ellipse carrying it must overhang the sphere or its own ends
+            // curl into view
+            const w = sph * (1.15 + 0.85 * Math.sqrt(Math.max(0, 1 - lat * lat)));
+            const h = H * th * 2.1;
+            const bow = H * 0.42 * lat * lat * Math.sign(lat);
+            return (
+              <div key={`b${i}`} style={{
+                position: 'absolute', left: '50%', top: H * (0.5 - lat * 0.46) - h / 2 - bow * 0.5,
+                width: w, height: h, marginLeft: -w / 2, borderRadius: '50%', opacity: op,
+                background: `radial-gradient(ellipse at 50% 50%, ${col} 0%, ${col} 58%, ${col}00 100%)`,
+              }} />
+            );
+          })}
+          {/* the Great Red Spot, with the pale collar where the belt is
+              dragged around it */}
+          <div style={{
+            position: 'absolute', left: '20%', top: '60.5%', width: '38%', height: '19%',
+            borderRadius: '50%', transform: 'rotate(-7deg)', filter: `blur(${sph * 0.022}px)`,
+            background: 'radial-gradient(ellipse at 42% 40%, #ffeaba 0%, #ffeaba55 52%, transparent 76%)',
+          }} />
+          <div style={{
+            position: 'absolute', left: '23%', top: '63.5%', width: '32%', height: '13%',
+            borderRadius: '50%', transform: 'rotate(-7deg)', filter: `blur(${sph * 0.008}px)`,
+            background: 'radial-gradient(ellipse at 38% 34%, #f0915c 0%, #cf5426 42%, #94330f 78%, #6f2409 100%)',
+          }} />
+          {GAS_EDDIES.map(([l, t, w, h, c, o, bl], i) => (
+            <div key={`e${i}`} style={{
+              position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
+              borderRadius: '50%', background: c, opacity: o, filter: `blur(${bl}px)`,
+            }} />
+          ))}
+          {/* limb darkening and the lit side, on the same upper-left sun the
+              other planets use */}
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            background: 'radial-gradient(circle at 34% 28%, #fff6dd33 0%, transparent 42%), '
+              + 'radial-gradient(circle at 50% 50%, transparent 52%, #3a1e0866 80%, #24120499 100%)',
+          }} />
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            boxShadow: `inset ${-sph * 0.10}px ${-sph * 0.06}px ${sph * 0.20}px rgba(28,12,2,.7)`,
+          }} />
+        </div>
+        {GAS_MOONS.map(([x, y, d, c], i) => (
+          <div key={`m${i}`} style={{
+            position: 'absolute', left: `${x}%`, top: `${y}%`, width: size * d, height: size * d,
+            margin: `${-size * d / 2}px 0 0 ${-size * d / 2}px`, borderRadius: '50%', background: c,
+            boxShadow: `0 0 ${size * 0.02}px ${a}88`,
+          }} />
+        ))}
       </div>
     );
   }
@@ -1840,7 +1929,6 @@ export default function Accretion() {
         .ac-orbit:nth-child(2){animation-direction:reverse}
         @keyframes spin{to{transform:rotate(360deg)}}
         .ac-crater{position:absolute;border-radius:50%;background:rgba(0,0,0,.34);box-shadow:inset 1px 1px 2px rgba(255,255,255,.14)}
-        .ac-ring{position:absolute;border:2px solid;border-radius:50%;opacity:.75}
         .ac-corona{position:absolute;border-radius:50%;animation:breathe 4s ease-in-out infinite}
         @keyframes breathe{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.12);opacity:1}}
         .ac-disk{position:absolute;border-radius:50%;filter:blur(5px);opacity:.92;animation:spin 3.4s linear infinite;
