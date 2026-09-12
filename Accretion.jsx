@@ -811,8 +811,8 @@ const GAS_EDDIES = [
 /* the Galilean moons: what a Jupiter has instead of rings. Strung along one
    tilted plane so they read as a system rather than as stray pixels. */
 const GAS_MOONS = [
-  [3.5, 61, 0.040, '#fde68a'], [16, 74, 0.028, '#cbb894'],
-  [96.5, 35, 0.035, '#f1dcae'], [84, 23, 0.026, '#e8d7b4'],
+  [-17.5, 71.9, 0.040, '#fde68a'], [0.1, 66.2, 0.028, '#cbb894'],
+  [97.6, 34.5, 0.035, '#f1dcae'], [115.6, 28.7, 0.026, '#e8d7b4'],
 ];
 
 /* Old stars in the bulge are yellow, young ones out in the arms are blue. That
@@ -1099,12 +1099,12 @@ const Body = memo(function Body({ tier, size }) {
           {/* the Great Red Spot, with the pale collar where the belt is
               dragged around it */}
           <div style={{
-            position: 'absolute', left: '20%', top: '60.5%', width: '38%', height: '19%',
+            position: 'absolute', left: '25.5%', top: '63.5%', width: '27%', height: '13%',
             borderRadius: '50%', transform: 'rotate(-7deg)', filter: `blur(${sph * 0.022}px)`,
             background: 'radial-gradient(ellipse at 42% 40%, #ffeaba 0%, #ffeaba55 52%, transparent 76%)',
           }} />
           <div style={{
-            position: 'absolute', left: '23%', top: '63.5%', width: '32%', height: '13%',
+            position: 'absolute', left: '28%', top: '65.5%', width: '22%', height: '9%',
             borderRadius: '50%', transform: 'rotate(-7deg)', filter: `blur(${sph * 0.008}px)`,
             background: 'radial-gradient(ellipse at 38% 34%, #f0915c 0%, #cf5426 42%, #94330f 78%, #6f2409 100%)',
           }} />
