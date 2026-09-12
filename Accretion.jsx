@@ -84,6 +84,7 @@ const BALANCE = {
 const ATOM = 1.67e-27;
 const SUN = 1.989e30;
 const EARTH = 5.972e24;
+const MAX_GEN_LEVELS = 2000; // Numerical safety ceiling, far beyond the final stage.
 const SAVE_KEY = 'accretion_save_v6';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -204,8 +205,8 @@ const PERKS = [
   { n: 'Fossil metallicity',  d: 'Increases the one-time mass bonus at each new stage; the multiplier depends on the spacing to the following stage',   cost: 12 },
   { n: 'Frozen physics',      d: 'Keep the first five physics upgrades you have bought through a collapse', cost: 10 },
   { n: 'Long drift',          d: 'Offline accretion keeps earning for 24 hours away instead of 8',          cost: 14 },
-  { n: 'Self-assembly',       d: 'Buys the best-value accretor for you whenever you can afford it',         cost: 18 },
-  { n: 'Tidal resonance',     d: 'Pulls fire on their own, once a second, without you touching anything',   cost: 30 },
+  { n: 'Self-assembly',       d: 'While the game is active, saves for and buys the best-value accretor; paused while away',         cost: 18 },
+  { n: 'Tidal resonance',     d: 'While the game is active, pulls fire once a second; paused while away',   cost: 30 },
 ];
 /* Self-assembly is the one perk you can switch off after buying it: it is the
    only one that SPENDS for you, so there are real moments -- saving for a
@@ -536,20 +537,25 @@ const applyOffline = (s, now = Date.now()) => {
     ? Math.max(0, (now - s.lastSave) / 1000) : 0;
   const credited = Math.min(elapsed, offlineHours(s) * 3600);
   const raw = prod(s) * credited * offlineRate(s);
-  const gain = Math.min(raw, Math.max(s.mass, ATOM) * (offlineCap(s, credited / 3600) - 1));
+  const gain = Math.min(raw, Math.max(s.best, s.mass, ATOM) * (offlineCap(s, credited / 3600) - 1));
   s.mass += gain;
   s.lastSave = now;
   return { dt: elapsed, credited, gain, timeCapped: elapsed > credited, massCapped: gain < raw };
 };
 
 const genCost = (i, count, n) => {
+  if (count + n > MAX_GEN_LEVELS) return Infinity;
   const r = BALANCE.costGrowth;
   return GENS[i].cost * Math.pow(r, count) * (Math.pow(r, n) - 1) / (r - 1);
 };
 const genMax = (i, count, mass) => {
   const r = BALANCE.costGrowth;
   const base = GENS[i].cost * Math.pow(r, count);
-  return Math.max(0, Math.floor(Math.log(1 + (mass * (r - 1)) / base) / Math.log(r)));
+  let n = Math.min(MAX_GEN_LEVELS - count, Math.max(0, Math.floor(Math.log1p((mass * (r - 1)) / base) / Math.log(r))));
+  if (!Number.isFinite(n)) return 0;
+  while (n > 0 && genCost(i, count, n) > mass) n--;
+  while (genCost(i, count, n + 1) <= mass) n++;
+  return n;
 };
 /* Self-assembly's planner. It scores every accretor by time-to-break-even
    INCLUDING the wait to afford it, and buys only once the winner is already
@@ -561,7 +567,7 @@ const genMax = (i, count, mass) => {
    single-level-only finishes in 21h against 7.9h with the milestone jump,
    and 7.9h is where the balance target sits — the planner reaches the
    designed pace rather than beating it. */
-const autoPick = (s) => {
+const autoPlan = (s) => {
   const rate = prod(s) || 1e-300;
   let best = null;
   for (let i = 0; i < GENS.length; i++) {
@@ -569,6 +575,7 @@ const autoPick = (s) => {
     const toMile = BALANCE.milestoneEvery - (owned % BALANCE.milestoneEvery);
     for (const n of new Set([1, toMile])) {
       const c = genCost(i, owned, n);
+      if (!Number.isFinite(c)) continue;
       const before = genOutput(s, i);
       s.gens[i] = owned + n;
       const after = genOutput(s, i);
@@ -579,8 +586,10 @@ const autoPick = (s) => {
       if (!best || score < best.score) best = { score, i, n, c };
     }
   }
-  return best && best.c <= s.mass ? best : null;
+  return best;
 };
+
+const autoPick = (s) => { const pick = autoPlan(s); return pick && pick.c <= s.mass ? pick : null; };
 
 const tapCost = (s) => BALANCE.tapBase * Math.pow(BALANCE.tapGrowth, s.tap);
 const tapMaxed = (s) => s.tap >= BALANCE.tapLevels;
@@ -601,6 +610,7 @@ const SAVE_VER = 7;
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
 const normalize = (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('Invalid save');
   const s = { ...newGame(), ...v };
   s.gens = GENS.map((_, i) => Math.max(0, Math.floor(num(v.gens?.[i]))));
   s.ups = UPGRADES.map((_, i) => !!v.ups?.[i]);
@@ -630,6 +640,10 @@ const normalize = (v) => {
   s.hum = !!v.hum;
   s.dev = !!v.dev;
   s.stage = stageFor(s.best);
+  if (s.gens.some((count) => count > MAX_GEN_LEVELS) || s.mass > 1e200 || s.best > 1e200 ||
+      !Number.isFinite(prod(s)) || !Number.isFinite(tapGain(s))) {
+    throw new Error('Save exceeds supported numeric limits');
+  }
   return s;
 };
 
@@ -1533,6 +1547,7 @@ function Row({ title, sub, cost, right, ok, onClick, accent, note, tint, lit = o
 export default function Accretion() {
   const G = useRef(newGame());
   const ready = useRef(false);
+  const [recovery, setRecovery] = useState(null);
   const [, render] = useState(0);
   const [tab, setTab] = useState('gen');
   /* Each tab renders its own .ac-list, so switching unmounts one scroller and
@@ -1577,7 +1592,8 @@ export default function Accretion() {
       try {
         const r = await window.storage.get(SAVE_KEY);
         const v = r && r.value ? JSON.parse(r.value) : null;
-        if (v && typeof v.mass === 'number') {
+        if (!v || typeof v.mass !== 'number' || !Array.isArray(v.gens)) throw new Error('Invalid save');
+        if (v) {
           const s = normalize(v);
           G.current = s;
           SFX.setOn(s.sfx);
@@ -1587,13 +1603,35 @@ export default function Accretion() {
           await window.storage.set(SAVE_KEY, JSON.stringify(s));
           setSavedAt(s.lastSave);
         }
-      } catch (e) { /* first run, or no storage */ }
+      } catch (e) {
+        // Missing is the only safe first-run case. Never overwrite unreadable data.
+        if (e.code !== 'SAVE_NOT_FOUND') {
+          let raw = null;
+          try { raw = (await window.storage.get(SAVE_KEY)).value; } catch {}
+          setRecovery({ raw, msg: 'Your saved progress could not be loaded. Autosave is paused. Copy the original data below before recovering or starting over.' });
+          return;
+        }
+      }
       // outside the try: a first run has no save to read, and that throws
       if (/[?&]dev\b/.test(location.search)) G.current.dev = true;
       ready.current = true;
       render((x) => x + 1);
     })();
   }, []);
+
+  const recoverFresh = async () => {
+    try {
+      if (recovery.raw === null) throw new Error('Original save unavailable');
+      if (recovery.raw) await window.storage.set(`${SAVE_KEY}_recovery_${Date.now()}`, recovery.raw);
+      G.current = newGame();
+      await window.storage.set(SAVE_KEY, JSON.stringify(G.current));
+      ready.current = true;
+      setRecovery(null);
+      render((x) => x + 1);
+    } catch {
+      setRecovery({ ...recovery, msg: 'Storage is unavailable. Your original save has not been replaced. Copy the data and retry when storage is available.' });
+    }
+  };
 
   const save = useCallback(async () => {
     if (!ready.current) return false;
@@ -1691,6 +1729,8 @@ export default function Accretion() {
   const next = TIERS[s.stage + 1];
   const accent = tier.c[0];
   const perSec = prod(s);
+  const planned = useMemo(() => s.perks[AUTO_PERK] && s.auto ? autoPlan(s) : null,
+    [s.mass, ...s.gens, ...s.ups, s.dens, s.auto, s.perks[AUTO_PERK]]);
 
   const progress = next
     ? clamp((Math.log10(Math.max(s.best, tier.at)) - Math.log10(tier.at)) /
@@ -1698,6 +1738,7 @@ export default function Accretion() {
     : 1;
 
   const doTap = (e) => {
+    if (!ready.current) return;
     SFX.unlock();
     SFX.setOn(s.sfx);
     if (s.hum) SFX.hum(true, s.stage);
@@ -1708,8 +1749,8 @@ export default function Accretion() {
     const r = e.currentTarget.getBoundingClientRect();
     const id = Math.random();
     setPops((p) => [...p.slice(-8), {
-      id, x: (e.clientX ?? r.left + r.width / 2) - r.left,
-      y: (e.clientY ?? r.top + r.height / 2) - r.top, t: `+${fmt(gain)}`,
+      id, x: e.type === 'keydown' ? r.width / 2 : (e.clientX ?? r.left + r.width / 2) - r.left,
+      y: e.type === 'keydown' ? r.height / 2 : (e.clientY ?? r.top + r.height / 2) - r.top, t: `+${fmt(gain)}`,
     }]);
     setTimeout(() => setPops((p) => p.filter((q) => q.id !== id)), 850);
   };
@@ -1719,7 +1760,7 @@ export default function Accretion() {
     // "buy max" with free purchases would price off a mass you never spend,
     // so in dev it means a fixed block of levels instead
     const n = amt === -1 ? (free ? 25 : genMax(i, s.gens[i], s.mass)) : amt;
-    if (n < 1) return;
+    if (n < 1 || s.gens[i] + n > MAX_GEN_LEVELS) return;
     const c = free ? 0 : genCost(i, s.gens[i], n);
     if (c > s.mass) return;
     const before = Math.floor(s.gens[i] / BALANCE.milestoneEvery);
@@ -1887,7 +1928,7 @@ export default function Accretion() {
       setIo(null); setTab('gen'); setWipe(false);
       save(); render((x) => x + 1);
     } catch (e) {
-      setIo({ ...io, msg: "That code couldn't be read. Paste the whole thing, including the ACC6- prefix." });
+      setIo({ ...io, msg: "That code couldn't be read. Paste the whole thing, including the ACC7- prefix." });
     }
   };
 
@@ -2021,7 +2062,9 @@ export default function Accretion() {
         </div>
       </div>
 
-      <div className="ac-stage" onPointerDown={doTap} role="button" tabIndex={0} aria-label="Pull in mass">
+      <div className="ac-stage" onPointerDown={doTap} onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!e.repeat) doTap(e); }
+      }} role="button" tabIndex={0} aria-label="Pull in mass">
         <Body tier={tier} size={size} />
         {pops.map((p) => (
           <div key={p.id} className="ac-pop" style={{ left: p.x, top: p.y, color: accent }}>{p.t}</div>
@@ -2065,6 +2108,9 @@ export default function Accretion() {
                 onClick={() => setAmt(v)}>{l}</button>
             ))}
           </div>
+          {planned && <div className="ac-sub" style={{ marginBottom: 7 }}>
+            Self-assembly: {planned.c > s.mass ? 'Saving for' : 'Buying'} {planned.n} × {GENS[planned.i].n} · {fmt(planned.c)} kg
+          </div>}
           <div className="ac-list" ref={listEl} onScroll={onListScroll}>
             {visible.map((i) => {
               const owned = s.gens[i];
@@ -2137,7 +2183,7 @@ export default function Accretion() {
                 sub="Collapse into a denser universe. Every level multiplies all output, and they compound."
                 right={`lv ${s.dens || 0}`}
                 cost={devFree(s) ? 'free' : `${densCost(s)} shards`}
-                note={`Now ×${shardMult(s).toFixed(2)} output · next level ×${shardMult({ dens: (s.dens || 0) + 1 }).toFixed(2)}, so the run after it is ${Math.round((1 - 1 / BALANCE.densStep) * 100)}% shorter`} />
+                note={`Now ×${shardMult(s).toFixed(2)} output · next level ×${shardMult({ dens: (s.dens || 0) + 1 }).toFixed(2)}, ${Math.round((BALANCE.densStep - 1) * 100)}% more accretor production`} />
               {PERKS.map((p, i) => {
                 /* An owned Self-assembly stays enabled so it can be switched
                    back on; every other owned perk is inert. */
@@ -2225,6 +2271,25 @@ export default function Accretion() {
         </div>
       )}
 
+      {recovery && (
+        <div className="ac-modal" role="dialog" aria-modal="true" aria-label="Recover saved progress" onKeyDown={(e) => {
+          if (e.key !== 'Tab') return;
+          const controls = [...e.currentTarget.querySelectorAll('textarea, button:not(:disabled)')];
+          const first = controls[0], last = controls[controls.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }}>
+          <div className="ac-card" style={{ width: '100%' }}>
+            <div className="ac-tier">Recover saved progress</div>
+            <p className="ac-blurb">{recovery.msg}</p>
+            <textarea className="ac-code" aria-label="Original save data" readOnly value={recovery.raw || ''} onFocus={(e) => e.target.select()} />
+            <button className="ac-btn" autoFocus onClick={() => location.reload()}>Retry loading</button>
+            <button className="ac-btn" disabled={recovery.raw === null} onClick={() => recovery.confirm ? recoverFresh() : setRecovery({ ...recovery, confirm: true })}>
+              {recovery.confirm ? 'Confirm: back up original and start fresh' : 'Back up original and start fresh'}
+            </button>
+          </div>
+        </div>
+      )}
       {flash && (
         <div className="ac-flash">
           <div style={{ borderColor: `${flash.c[0]}66`, color: flash.c[0] }}>
@@ -2263,7 +2328,7 @@ export default function Accretion() {
               readOnly={io.mode === 'export'}
               onFocus={(e) => io.mode === 'export' && e.target.select()}
               onChange={(e) => setIo({ ...io, text: e.target.value, msg: '' })}
-              placeholder={io.mode === 'import' ? 'ACC6-…' : undefined} />
+              placeholder={io.mode === 'import' ? 'ACC7-…' : undefined} />
             {io.msg ? <div className="ac-sub" style={{ marginTop: 6 }}>{io.msg}</div> : null}
             {io.mode === 'export' ? (
               <button className="ac-btn" style={{ background: accent }} onClick={copyCode}>Copy code</button>
