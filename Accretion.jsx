@@ -136,8 +136,8 @@ const TIERS = [
      and becomes bound structure. Masses include dark matter halos. */
   { n: 'Spiral galaxy',      at: 3e42,    k: 'galaxy',  c: ['#bfdbfe', '#1e3a8a'], d: 'Milky Way-class. A hundred billion stars around your hole.' },
   { n: 'Giant elliptical galaxy', at: 2e44, k: 'elliptical', c: ['#fde68a', '#78350f'], d: 'IC 1101: a hundred trillion suns, and no arms left to speak of.' },
-  { n: 'Galaxy cluster',     at: 2.4e45,  k: 'cluster', c: ['#a5b4fc', '#312e81'], d: 'Virgo-class. A thousand galaxies falling toward one centre.' },
-  { n: 'Supercluster',       at: 2e47,    k: 'cluster', c: ['#c4b5fd', '#4c1d95'], d: 'Laniakea. Everything here is already flowing inward.' },
+  { n: 'Galaxy cluster',     at: 2.4e45,  k: 'cluster', h: 'bound',  c: ['#a5b4fc', '#312e81'], d: 'Virgo-class. A thousand galaxies falling toward one centre.' },
+  { n: 'Supercluster',       at: 2e47,    k: 'cluster', h: 'sheet',   c: ['#c4b5fd', '#4c1d95'], d: 'Laniakea. Everything here is already flowing inward.' },
   { n: 'Cosmic filament',    at: 4e48,    k: 'web',     c: ['#93c5fd', '#1e40af'], d: 'The Sloan Great Wall: a billion light years of strung-together clusters.' },
   { n: 'Local volume',       at: 1e50,    k: 'web',     c: ['#a5f3fc', '#155e75'], d: 'Every galaxy within two billion light years, at mean cosmic density.' },
   { n: 'All stellar matter', at: 2.4e51,  k: 'cosmos',  c: ['#fef3c7', '#b45309'], d: 'Every star that has ever shone inside the observable universe.' },
@@ -779,6 +779,70 @@ const ELL_GLOBS = (() => {
   }
   return out;
 })();
+
+/* ---------- galaxy cluster and supercluster ----------
+   Both tiers shared eight identical little ellipses, so a thousand galaxies
+   falling into Virgo and the whole of Laniakea looked like the same smudges.
+   They are different structures and now carry different traits.
+
+   A cluster is bound and virialised. Three things define one: the
+   intracluster medium, hot gas outweighing every galaxy in it put together,
+   so the thing glows BETWEEN its members rather than being empty space with
+   specks in it; members of visibly different kinds concentrated towards the
+   middle under one dominant cD galaxy; and gravitational lensing arcs, which
+   are what make an Abell-class image recognisable at a glance.
+
+   A supercluster is none of that. It is not virialised: no single centre, no
+   cD, no lensing, members bunched into sub-clumps, and the whole thing
+   flattened, because superclusters are sheets rather than balls.
+
+   Membership is tiered. At 166px a flat swarm of equal specks is noise; a
+   real cluster image reads as a few dominant ellipticals over a haze of faint
+   ones. Edge-on disks stay rare, because thin white streaks compete with the
+   lensing arcs for exactly the same reading. */
+const clusterMembers = ({ n, seed, q = 1, conc, spread, clumps = 0, bright }) => {
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  // hubs spread evenly in angle and members dealt round-robin, so a
+  // supercluster does not pile every clump into one corner
+  const hubs = clumps ? Array.from({ length: clumps }, (_, k) => {
+    const th = (k / clumps) * 2 * Math.PI + rnd() * 0.9, r = 0.20 + rnd() * 0.20;
+    return [50 + r * 100 * Math.cos(th), 50 + r * 100 * Math.sin(th) * q];
+  }) : [[50, 50]];
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const [hx, hy] = hubs[i % hubs.length];
+    const th = rnd() * 2 * Math.PI;
+    const rr = Math.pow(rnd(), conc) * spread * (clumps ? 0.42 : 1);
+    const roll = rnd(), big = i < bright;
+    out.push({
+      x: hx + rr * (big ? 0.95 : 1) * 100 * Math.cos(th),
+      y: hy + rr * (big ? 0.95 : 1) * 100 * Math.sin(th) * q,
+      t: roll < 0.62 ? 'e' : roll < 0.94 ? 's' : 'd',
+      s: big ? 1.0 + rnd() * 0.5 : 0.42 + Math.pow(rnd(), 1.9) * 0.6,
+      rot: rnd() * 180, d: rr / spread, faint: !big,
+    });
+  }
+  return out;
+};
+/* arcs are [radius, angle, length, opacity]: a broken ring of tangential
+   slivers at one radius is what says "lensing" rather than "more streaky
+   galaxies". Drawing them as slices of a bordered circle spans ninety degrees
+   and reads as an orbit line, which is the mistake the elliptical's merger
+   shells made. */
+const CLUSTER_ART = {
+  bound: {
+    warm: '#fff1d6', q: 1, icm: 0.9, cd: 1, spin: 120,
+    members: clusterMembers({ n: 32, seed: 5150, conc: 0.7, spread: 0.44, bright: 6 }),
+    arcs: [[0.26, 24, 0.17, 0.85], [0.27, 96, 0.15, 0.7], [0.255, 168, 0.16, 0.78],
+           [0.28, 246, 0.14, 0.62], [0.265, 312, 0.13, 0.55]],
+  },
+  sheet: {
+    warm: '#f3e2ff', q: 0.58, icm: 0.9, cd: 0, spin: 150,
+    members: clusterMembers({ n: 46, seed: 991, q: 0.58, conc: 0.8, spread: 0.60,
+                              clumps: 5, bright: 5 }),
+    arcs: [],
+  },
+};
 
 /* ---------- gas giant ----------
    Bands are drawn as wide ellipses rather than a striped gradient. A circle of
@@ -1431,25 +1495,63 @@ const Body = memo(function Body({ tier, size }) {
   }
 
   if (tier.k === 'cluster') {
-    const dots = [[50, 50, 1], [22, 34, .62], [76, 30, .55], [30, 74, .58],
-                  [72, 72, .5], [50, 16, .42], [14, 58, .38], [86, 56, .4]];
+    const A = CLUSTER_ART[tier.h] || CLUSTER_ART.bound;
     return (
       <div className="ac-body" style={s}>
-        <div className="ac-slowspin" style={{ width: size, height: size, position: 'absolute' }}>
-          {dots.map(([x, y, sc], i) => (
-            <div key={i} style={{
-              position: 'absolute', left: `${x}%`, top: `${y}%`,
-              width: size * 0.15 * sc, height: size * 0.08 * sc, marginLeft: -size * 0.075 * sc,
-              borderRadius: '50%', transform: `rotate(${i * 47}deg)`,
-              background: `radial-gradient(circle, #fff 10%, ${a} 45%, transparent 75%)`,
-              boxShadow: `0 0 ${size * 0.1}px ${b}`,
-            }} />
-          ))}
-        </div>
+        {/* the intracluster medium: most of the ordinary mass here, and the
+            reason a cluster glows between its galaxies instead of being empty */}
         <div style={{
-          width: size * 0.9, height: size * 0.9, borderRadius: '50%',
-          background: `radial-gradient(circle, ${b}33 20%, transparent 68%)`,
+          position: 'absolute', width: size * 1.16, height: size * 1.16 * A.q,
+          borderRadius: '50%', opacity: A.icm,
+          background: `radial-gradient(${a}22 0%, ${a}14 34%, ${b}1c 58%, transparent 78%)`,
         }} />
+        {A.arcs.map(([r, deg, len, op], i) => {
+          const th = deg * Math.PI / 180;
+          const w = size * len, h = size * 0.011;
+          return (
+            <div key={`a${i}`} style={{
+              position: 'absolute', left: `${50 + r * 100 * Math.cos(th)}%`,
+              top: `${50 + r * 100 * Math.sin(th)}%`, width: w, height: h,
+              margin: `${-h / 2}px 0 0 ${-w / 2}px`, borderRadius: '50%', opacity: op,
+              transform: `rotate(${deg + 90}deg)`, filter: `blur(${size * 0.005}px)`,
+              background: 'linear-gradient(90deg, transparent, #cfe0ff 18%, #ffffff 50%, #cfe0ff 82%, transparent)',
+              boxShadow: `0 0 ${size * 0.012}px #bcd4ff`,
+            }} />
+          );
+        })}
+        <div className="ac-slowspin" style={{
+          position: 'absolute', inset: 0, animationDuration: `${A.spin}s`,
+        }}>
+          {A.members.map((g, i) => {
+            const base = size * 0.05 * g.s;
+            const op = g.faint ? 0.58 - g.d * 0.18 : 0.95 - g.d * 0.2;
+            // ellipticals are fuzzy balls, spirals show a core, disks are streaks
+            const [w, h, bg] = g.t === 'd'
+              ? [base * 2.2, base * 0.30,
+                 `linear-gradient(90deg, transparent, ${A.warm} 30%, #fff 50%, ${A.warm} 70%, transparent)`]
+              : g.t === 's'
+                ? [base * 1.5, base * 0.72,
+                   `radial-gradient(ellipse, #ffffff 12%, ${A.warm} 34%, ${a}cc 60%, ${a}00 82%)`]
+                : [base * 1.05, base * 0.82,
+                   `radial-gradient(ellipse, #fff7e0 10%, ${A.warm}dd 38%, ${a}66 68%, ${a}00 86%)`];
+            return (
+              <div key={`g${i}`} style={{
+                position: 'absolute', left: `${g.x}%`, top: `${g.y}%`, width: w, height: h,
+                margin: `${-h / 2}px 0 0 ${-w / 2}px`, borderRadius: '50%',
+                transform: `rotate(${g.rot}deg)`, opacity: op, background: bg,
+              }} />
+            );
+          })}
+        </div>
+        {A.cd ? (
+          /* the brightest cluster galaxy, sitting in the potential well */
+          <div style={{
+            position: 'absolute', width: size * 0.12, height: size * 0.088,
+            borderRadius: '50%', transform: 'rotate(-16deg)',
+            background: `radial-gradient(ellipse, #ffffff 14%, #fff3d2 38%, ${A.warm}66 62%, transparent 82%)`,
+            boxShadow: `0 0 ${size * 0.09}px #fff2d0aa, 0 0 ${size * 0.24}px ${a}55`,
+          }} />
+        ) : null}
       </div>
     );
   }
