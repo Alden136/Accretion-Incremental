@@ -143,6 +143,19 @@ const TIERS = [
   { n: 'All stellar matter', at: 2.4e51,  k: 'cosmos',  c: ['#fef3c7', '#b45309'], d: 'Every star that has ever shone inside the observable universe.' },
   { n: 'All ordinary matter', at: 2.4e52, k: 'cosmos',  c: ['#e9d5ff', '#6b21a8'], d: 'Every atom there is — and still only 5% of what exists.' },
   { n: 'The observable universe', at: 1.5e53, k: 'cosmos', c: ['#ffffff', '#a78bfa'], d: 'Matter, dark matter, all of it, out to the edge of what light can reach.' },
+
+  /* Past here the ladder leaves what anyone can observe, and the descriptions
+     say so rather than pretending otherwise. The band follows the standard
+     four-level taxonomy: everything beyond our light cone, then the whole
+     inflated bubble, then its siblings, then branches, then the ensemble.
+     Gaps stay near 1.3 decades, the cadence the ladder already ends on;
+     wider ones were tried first and the last stage alone took 39 hours. */
+  { n: 'Beyond the horizon', at: 3.0e54,  k: 'cosmos',  c: ['#ddd6fe', '#5b21b6'], d: 'Inflation left far more universe outside our light cone than inside it.' },
+  { n: 'The inflated volume', at: 6.0e55, k: 'bubble',  h: 'one',   c: ['#a7f3d0', '#065f46'], d: 'One post-inflationary bubble, ours, from one wall to the other.' },
+  { n: 'Sibling bubbles',    at: 1.2e57,  k: 'bubble',  h: 'few',   c: ['#bfdbfe', '#1e40af'], d: 'Eternal inflation never stops once it starts. Ours was never the only one.' },
+  { n: 'The bubble foam',    at: 2.5e58,  k: 'bubble',  h: 'foam',  c: ['#fbcfe8', '#9d174d'], d: 'Pocket universes, each with its own constants, and almost all of them sterile.' },
+  { n: 'Every branch',       at: 5.0e59,  k: 'bubble',  h: 'split', c: ['#fde68a', '#b45309'], d: 'Every outcome the wavefunction ever took, taken, and none of them undone.' },
+  { n: 'The ensemble',       at: 1.0e61,  k: 'bubble',  h: 'all',   c: ['#ffffff', '#475569'], d: 'Every structure consistent enough to exist. There is nothing further left to be.' },
 ];
 
 const PRESTIGE_AT = 29;
@@ -175,6 +188,13 @@ const GENS = [
   { n: 'Cluster infall',        d: 'Whole galaxies arrive on radial orbits',   cost: 1e47,  y: 3.1e-05, m: 2.8, c: '#c4b5fd' },
   { n: 'Filament siphon',       d: 'Draws matter down the cosmic web',         cost: 5e49,  y: 1.1e-05, m: 2.75, c: '#5eead4' },
   { n: 'Horizon harvest',       d: 'Gathers everything light can still reach', cost: 1e52,  y: 1.1e-05, m: 2.7, c: '#ffffff' },
+  /* The multiverse band is not merely slow without these: simulated with the
+     ladder extended and the accretor list left alone, the run stalls one
+     stage short of the end and is still there four hundred hours later. */
+  { n: 'Vacuum decay tap',      d: 'Skims the drop as a false vacuum settles',  cost: 1e54,  y: 1.1e-05, m: 2.65, c: '#ddd6fe' },
+  { n: 'Inflaton siphon',       d: 'Taps the field that blew the universe up',  cost: 1e56,  y: 1.08e-05, m: 2.6, c: '#a7f3d0' },
+  { n: 'Bubble nucleator',      d: 'Starts new universes and keeps the leak',   cost: 1e58,  y: 1.05e-05, m: 2.55, c: '#fbcfe8' },
+  { n: 'Ensemble dredge',       d: 'Hauls in structures that merely could be',  cost: 1e60,  y: 1.0e-05, m: 2.5, c: '#e2e8f0' },
 ];
 GENS.forEach((g) => { g.prod = g.cost * g.y; });
 
@@ -779,6 +799,66 @@ const ELL_GLOBS = (() => {
   }
   return out;
 })();
+
+/* ---------- the multiverse band ----------
+   One kind, five traits, because what separates these tiers is how MANY
+   universes are in frame rather than what a universe looks like: one inflated
+   bubble, then siblings, then foam, then branches, then the ensemble.
+
+   A bubble is a thin bright wall around a dim interior with structure
+   speckled through it -- an inflating region seen from outside, the wall being
+   where the false vacuum is still decaying. Two versions were wrong before
+   this one. A border plus a box-shadow gives a hard neon ring that reads as a
+   Venn diagram beside the soft diffuse bodies the rest of the ladder uses; a
+   pure gradient shell loses the wall entirely and leaves overlapping smudges.
+   A thin wall for definition over a soft gradient for volume, with no glow on
+   the ring itself, sits between the two.
+
+   Geometry is precomputed because it is deterministic and size-free; colours
+   are not, since four of the five traits take them from the tier. */
+const hsl2hex = (h, sPct, lPct) => {
+  const sN = sPct / 100, lN = lPct / 100;
+  const c = (1 - Math.abs(2 * lN - 1)) * sN;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = lN - c / 2;
+  const [r, g, bl] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
+    : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return '#' + [r, g, bl].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('');
+};
+
+const bubbleSet = ({ n, seed, spread = 0.30, rmin = 0.10, rmax = 0.26, ours = -1, tint = 0 }) => {
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const th = (i / n) * 2 * Math.PI + rnd() * 1.5;
+    const rr = n === 1 ? 0 : Math.pow(rnd(), 0.55) * spread;
+    const r = rmin + rnd() * (rmax - rmin);
+    const hue = ((208 + (rnd() - 0.5) * 150) % 360 + 360) % 360;
+    const u = {
+      x: 50 + rr * 100 * Math.cos(th), y: 50 + rr * 100 * Math.sin(th), r,
+      ours: i === ours, specks: [],
+      wall: tint ? hsl2hex(hue, 70, 82) : null,
+      fill: tint ? hsl2hex(hue, 62, 58) : null,
+    };
+    const sn = Math.max(5, Math.round(r * 60));
+    for (let j = 0; j < sn; j++) {
+      const a2 = rnd() * 2 * Math.PI, rad = Math.sqrt(rnd()) * 0.78;
+      u.specks.push({
+        x: 50 + rad * 50 * Math.cos(a2), y: 50 + rad * 50 * Math.sin(a2),
+        s: 0.5 + rnd(), white: j % 4 === 0, op: 0.45 + rnd() * 0.5,
+      });
+    }
+    out.push(u);
+  }
+  return out;
+};
+
+const BUBBLE_ART = {
+  one:   { spin: 150, tint: 0, list: bubbleSet({ n: 1, seed: 4242, rmin: 0.40, rmax: 0.40, ours: 0 }) },
+  few:   { spin: 150, tint: 0, list: bubbleSet({ n: 4, seed: 771, spread: 0.20, rmin: 0.22, rmax: 0.32, ours: 0 }) },
+  foam:  { spin: 160, tint: 0, list: bubbleSet({ n: 9, seed: 3313, spread: 0.28, rmin: 0.14, rmax: 0.24 }) },
+  split: { spin: 170, tint: 0, list: bubbleSet({ n: 13, seed: 8081, spread: 0.32, rmin: 0.11, rmax: 0.19 }) },
+  all:   { spin: 190, tint: 1, list: bubbleSet({ n: 20, seed: 5567, spread: 0.36, rmin: 0.08, rmax: 0.16, tint: 1 }) },
+};
 
 /* ---------- galaxy cluster and supercluster ----------
    Both tiers shared eight identical little ellipses, so a thousand galaxies
@@ -1490,6 +1570,49 @@ const Body = memo(function Body({ tier, size }) {
           background: 'radial-gradient(#ffffff 20%, #fff7e2 46%, #ffe0a033 70%, transparent 86%)',
           boxShadow: `0 0 ${size * 0.12}px #ffeaba88, 0 0 ${size * 0.3}px #a0682c55`,
         }} />
+      </div>
+    );
+  }
+
+  if (tier.k === 'bubble') {
+    const A = BUBBLE_ART[tier.h] || BUBBLE_ART.one;
+    return (
+      <div className="ac-body" style={s}>
+        {/* the substrate the bubbles are nucleating in */}
+        <div style={{
+          position: 'absolute', width: size * 1.1, height: size * 1.1, borderRadius: '50%',
+          background: `radial-gradient(${a}14 0%, ${b}22 44%, transparent 74%)`,
+        }} />
+        <div className="ac-slowspin" style={{
+          position: 'absolute', inset: 0, animationDuration: `${A.spin}s`,
+        }}>
+          {A.list.map((u, i) => {
+            const d = size * u.r * 2;
+            const wall = u.wall || (u.ours ? '#ffffff' : a);
+            const fill = u.fill || a;
+            return (
+              <div key={`u${i}`} style={{
+                position: 'absolute', left: `${u.x}%`, top: `${u.y}%`, width: d, height: d,
+                margin: `${-d / 2}px 0 0 ${-d / 2}px`, borderRadius: '50%',
+                opacity: u.ours ? 0.98 : 0.86,
+                border: `${Math.max(1, size * 0.0035)}px solid ${wall}${u.ours ? 'ee' : 'aa'}`,
+                background: `radial-gradient(circle, ${fill}14 0%, ${fill}20 54%, ${fill}3e 80%, ${fill}58 100%)`,
+                boxShadow: `0 0 ${size * 0.02}px ${fill}55`,
+              }}>
+                {u.specks.map((p, j) => {
+                  const sd = Math.max(1.2, d * 0.016 * p.s);
+                  return (
+                    <div key={`s${j}`} style={{
+                      position: 'absolute', left: `${p.x}%`, top: `${p.y}%`, width: sd, height: sd,
+                      margin: `${-sd / 2}px 0 0 ${-sd / 2}px`, borderRadius: '50%',
+                      background: p.white ? '#ffffff' : wall, opacity: p.op,
+                    }} />
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   }
