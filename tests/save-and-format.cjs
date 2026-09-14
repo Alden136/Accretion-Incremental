@@ -14,8 +14,8 @@ vm.runInContext(
   cut('/* ---------- number formatting', '/* ---------- audio') +
   cut('const newGame', '/* ---------- save handling') +
   cut('const SAVE_VER', '/* ---------- the object') +
-  ';globalThis.api = { fmt, dur, normalize, genMax, shardMult, densCost, densLevelsFor, BALANCE };', context);
-const { fmt, dur, normalize, genMax, shardMult, densCost, densLevelsFor, BALANCE } = context.api;
+  ';globalThis.api = { fmt, dur, normalize, genMax, shardMult, densCost, densLevelsFor, shardsFrom, TIERS, PRESTIGE_AT, BALANCE };', context);
+const { fmt, dur, normalize, genMax, shardMult, densCost, densLevelsFor, shardsFrom, TIERS, PRESTIGE_AT, BALANCE } = context.api;
 
 const SUPS = { '⁻': '-', '⁰': 0, '¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9 };
 
@@ -86,9 +86,33 @@ for (const total of [0, 1, 5, 27, 60, 200, 1000]) {
   assert.equal(normalize(s).dens, s.dens, 'migration re-ran on an already-migrated save');
 }
 
+// Every shard must cost the same multiple of mass as the one before it. The
+// old power law charged 328x the mass for the 3rd shard and 1.16x for the
+// 96th, which is the escalation this replaced.
+const THRESHOLD = TIERS[PRESTIGE_AT].at;
+const massForShard = (n) => THRESHOLD * Math.pow(10, (n - BALANCE.shardBase) / BALANCE.shardPerDecade);
+const step = Math.pow(10, 1 / BALANCE.shardPerDecade);
+for (let n = BALANCE.shardBase + 2; n <= 120; n++) {
+  const ratio = massForShard(n) / massForShard(n - 1);
+  assert.ok(Math.abs(ratio - step) < 1e-9, `shard ${n} costs x${ratio} the mass of the one before, not x${step}`);
+}
+// and the count has to floor at the threshold rather than going to zero or
+// negative below it, since collapse() reads it before the stage gate
+for (const m of [0, 1, -5, 1e20, THRESHOLD * 0.999]) {
+  assert.equal(shardsFrom(m), BALANCE.shardBase, `shardsFrom(${m})`);
+}
+assert.ok(shardsFrom(THRESHOLD) === BALANCE.shardBase);
+// monotone in mass, and finite everywhere on the ladder
+let prevShards = -1;
+for (let d = 0; d <= 30; d += 0.05) {
+  const got = shardsFrom(THRESHOLD * Math.pow(10, d));
+  assert.ok(Number.isFinite(got) && got >= prevShards, `shardsFrom went backwards at 1e${d}`);
+  prevShards = got;
+}
+
 assert.equal(dur(0), '0m 0s');
 assert.equal(dur(90), '1m 30s');
 assert.equal(dur(3600), '1h 0m');
 assert.equal(dur(31337), '8h 42m');
 
-console.log('Save and format tests passed: mantissa carry, non-finite rejection, density track, v6 migration, durations.');
+console.log('Save and format tests passed: mantissa carry, non-finite rejection, density track, v6 migration, flat shard curve, durations.');

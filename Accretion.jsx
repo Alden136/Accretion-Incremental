@@ -74,8 +74,8 @@ const BALANCE = {
   tapGrowth: 36,      // ...and each one after it costs this much more again
   offlineRate: 0.5,
   offlineCapH: 8,
-  shardRate: 2,
-  shardPower: 0.07,
+  shardBase: 2,       // shards for reaching the prestige threshold at all...
+  shardPerDecade: 4,  // ...and this many for every decade of mass above it
   densBase: 2,        // the first density level costs this many shards...
   densGrowth: 1.45,   // ...and each one after it costs this much more again
   densStep: 1.15,     // and each one multiplies output by this, compounding
@@ -618,8 +618,28 @@ const autoPick = (s) => { const pick = autoPlan(s); return pick && pick.c <= s.m
 
 const tapCost = (s) => BALANCE.tapBase * Math.pow(BALANCE.tapGrowth, s.tap);
 const tapMaxed = (s) => s.tap >= BALANCE.tapLevels;
+/* Every shard costs the same multiple of mass as the one before it: one
+   decade buys shardPerDecade of them, so a shard is always 10^(1/4) = 1.78x
+   more mass, from the first to the hundredth.
+
+   This replaced a power law, mass^0.07, which escalated viciously at the low
+   end and then flattened out: the 3rd shard cost 328x the mass of the 2nd,
+   the 4th 61x, the 5th 24x, while the 96th cost only 1.16x the 95th. Both
+   ends land in the same place as before -- 2 at the threshold, 98 at the top
+   of the ladder against 96 -- so only the shape between them has changed.
+
+   The cost of that shape is real and worth knowing. Time to reach a given
+   mass grows about 8x across the 24 decades above the threshold, so shards
+   per hour peaks wherever the curve stops outrunning it. A power law with an
+   exponent above 0.038 never stops, which is why finishing a run used to be
+   the best rate available. A curve that is linear in decades always does, and
+   raising its base only moves the peak earlier -- there is no flat curve that
+   avoids this. So collapsing around 1e48 now pays about 9.8 shards an hour
+   against 5.8 for running the ladder out. Short runs are the better rate, and
+   that is a consequence of the flat curve rather than a tuning mistake. */
 const shardsFrom = (mass) =>
-  Math.floor(BALANCE.shardRate * Math.pow(Math.max(mass, 1) / TIERS[PRESTIGE_AT].at, BALANCE.shardPower));
+  BALANCE.shardBase + Math.floor(BALANCE.shardPerDecade
+    * Math.log10(Math.max(mass, TIERS[PRESTIGE_AT].at) / TIERS[PRESTIGE_AT].at));
 
 /* ---------- save handling ----------
    normalize() is the single place a save is validated, so a file from
@@ -2017,8 +2037,8 @@ export default function Accretion() {
 
   const collapse = () => {
     const got = shardsFrom(s.best);
-    // shardsFrom reaches 1 at ~4e32 kg, thousands of times below the prestige
-    // threshold, so the shard count alone is not the gate the UI implies
+    // shardsFrom floors at shardBase for any mass, so it is never the gate the
+    // UI implies; reaching the prestige stage is the whole of it
     if (s.stage < PRESTIGE_AT || got < 1) return;
     SFX.collapse();
     G.current = applyPerks({
