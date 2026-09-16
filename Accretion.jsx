@@ -227,6 +227,7 @@ const PERKS = [
   { n: 'Long drift',          d: 'Offline accretion keeps earning for 24 hours away instead of 8',          cost: 14 },
   { n: 'Self-assembly',       d: 'While the game is active, saves for and buys the best-value accretor; paused while away',         cost: 18 },
   { n: 'Tidal resonance',     d: 'While the game is active, pulls fire once a second; paused while away',   cost: 30 },
+  { n: 'Unbroken infall',     d: 'Offline accretion earns at your full production rate, not a fraction of it', cost: 24 },
 ];
 /* Self-assembly is the one perk you can switch off after buying it: it is the
    only one that SPENDS for you, so there are real moments -- saving for a
@@ -467,7 +468,19 @@ const newGame = () => ({
 const devFree = (s) => !!s.dev;
 
 /* perks change these offline constants; none of them compound with progress */
-const offlineRate = (s) => (s.perks[1] ? 0.8 : BALANCE.offlineRate);
+/* Unbroken infall supersedes Deep time's half of this, but Deep time keeps its
+   other half -- the faster-filling mass cap -- so both stay worth owning, and
+   owning both makes this one bite sooner.
+
+   Offline gain is the SMALLER of rate-limited and cap-limited, so a higher
+   rate is worth nothing whenever the mass cap is the binding one. Which binds
+   turns only on prod/mass: at 1e-4 (a decade of mass every six hours) the rate
+   binds almost immediately, while at 3e-3 the cap holds for the first six
+   hours away, or three and a half with Deep time widening it. So the perk is
+   quiet on short absences by a hair or by hours depending on how much mass is
+   banked against output, and past a few hours it is the rate that binds either
+   way -- which is what offline progress is mostly for. */
+const offlineRate = (s) => (s.perks[8] ? 1 : s.perks[1] ? 0.8 : BALANCE.offlineRate);
 const offlineHours = (s) => (s.perks[5] ? 24 : BALANCE.offlineCapH);
 const offlineShare = (s) => (s.perks[1] ? BALANCE.offlineShareDeep : BALANCE.offlineShare);
 /* A pull is worth a share of a second's output — the only scale-free way

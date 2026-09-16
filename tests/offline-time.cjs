@@ -69,9 +69,32 @@ for (const seconds of [3600, 28800, 28801, 86400, 86401, 172800]) {
   const plain = state(seconds);
   assert.equal(applyOffline(plain, now).credited, Math.min(seconds, 28800));
 }
+// Unbroken infall (perk 8) takes the rate to 1.0, over the top of Deep time's
+// 0.8 and the 0.5 base. It is a rate change only, so it must not move the
+// credited window, and it must not disturb the mass cap Deep time widens.
+for (const seconds of [3600, 28800, 28801]) {
+  const ceiling = 28800;
+  for (const [label, perks, rate] of [
+    ['base', [], 0.5], ['deep time', [1], 0.8],
+    ['unbroken', [8], 1], ['both', [1, 8], 1],
+  ]) {
+    const s = state(seconds);
+    for (const p of perks) s.perks[p] = true;
+    const result = applyOffline(s, now);
+    assert.equal(result.credited, Math.min(seconds, ceiling), `${label} moved the window`);
+    assert.equal(result.gain, prod(s) * Math.min(seconds, ceiling) * rate,
+      `${label} at ${seconds}s earned the wrong rate`);
+  }
+}
+// and it stacks with Long drift's longer window without changing it
+const far = state(172800); far.perks[5] = true; far.perks[8] = true;
+const farResult = applyOffline(far, now);
+assert.equal(farResult.credited, 86400);
+assert.equal(farResult.gain, prod(far) * 86400 * 1);
+
 // Long drift stacks with Deep time: 24-hour window at the 80% rate.
 const both = state(172800, true); both.perks[5] = true;
 const bothResult = applyOffline(both, now);
 assert.equal(bothResult.credited, 86400);
 assert.equal(bothResult.gain, prod(both) * 86400 * 0.8);
-console.log('Offline time tests passed: short absences, 8-hour boundary, 24 hours, both rates, Long drift\u2019s 24-hour ceiling, replay protection, invalid clocks, and both caps.');
+console.log('Offline time tests passed: short absences, 8-hour boundary, 24 hours, every offline rate, Long drift\u2019s 24-hour ceiling, replay protection, invalid clocks, and both caps.');
