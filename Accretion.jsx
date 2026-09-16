@@ -2206,12 +2206,24 @@ export default function Accretion() {
         .ac-bead{width:3px;border-radius:3px;flex-shrink:0;align-self:stretch}
         .ac-grad{-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
         @keyframes tw{0%,100%{opacity:.2}50%{opacity:1}}
-        .ac-mass{font-size:33px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+        .ac-mass{font-size:40px;font-weight:700;letter-spacing:-.035em;font-variant-numeric:tabular-nums;line-height:1.05;
+          filter:drop-shadow(0 2px 14px rgba(0,0,0,.6))}
         .ac-sub{font-size:11.5px;color:#8496b5;font-variant-numeric:tabular-nums}
-        .ac-tier{font-size:15px;font-weight:600}
+        .ac-tier{font-size:16px;font-weight:700;letter-spacing:.005em;display:flex;align-items:center;gap:7px}
+        /* a short accent rule in front of the tier name, so the header reads as
+           a titled block rather than three loose lines */
+        .ac-tier::before{content:'';width:3px;height:14px;border-radius:2px;background:currentColor;
+          box-shadow:0 0 8px currentColor;opacity:.85;flex-shrink:0}
         .ac-blurb{font-size:11.5px;color:#7d8ca8;line-height:1.45;max-width:48ch}
         .ac-stage{position:relative;z-index:2;flex:1;display:flex;align-items:center;justify-content:center;min-height:180px;
           touch-action:manipulation;user-select:none;cursor:pointer}
+        /* the body sits in a lot of void. A ground glow under it and a vignette
+           around it make that read as depth rather than as an empty panel. */
+        .ac-glow{position:absolute;left:50%;bottom:9%;width:78%;height:22%;transform:translateX(-50%);
+          border-radius:50%;filter:blur(24px);opacity:.5;pointer-events:none;z-index:1}
+        /* A vignette was tried here and removed: .ac-stage is a rectangle and
+           the page around it is not, so darkening its corners drew a visible
+           box instead of depth. The ground glow does the job on its own. */
         .ac-stage:active{transform:scale(.97)}
         .ac-body{position:relative;display:flex;align-items:center;justify-content:center;animation:float 7s ease-in-out infinite}
         @keyframes float{0%,100%{transform:translateY(-4px)}50%{transform:translateY(5px)}}
@@ -2231,32 +2243,57 @@ export default function Accretion() {
         .ac-pop{position:absolute;font-size:13px;font-weight:600;pointer-events:none;animation:rise .85s ease-out forwards;
           font-variant-numeric:tabular-nums;text-shadow:0 0 8px rgba(0,0,0,.8)}
         @keyframes rise{to{transform:translateY(-46px);opacity:0}}
-        .ac-bar{height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
-        .ac-bar>div{height:100%;border-radius:3px;transition:width .25s}
-        .ac-bar{box-shadow:inset 0 0 0 1px rgba(255,255,255,.04)}
+        .ac-bar{position:relative;height:10px;border-radius:99px;overflow:hidden;
+          background:linear-gradient(180deg, rgba(0,0,0,.45), rgba(255,255,255,.05));
+          box-shadow:inset 0 0 0 1px rgba(255,255,255,.07), inset 0 1px 3px rgba(0,0,0,.6)}
+        .ac-bar>div{position:relative;height:100%;border-radius:99px;transition:width .35s ease;overflow:hidden}
+        /* a highlight along the top of the fill, so it reads as a lit tube */
+        .ac-bar>div::before{content:'';position:absolute;inset:0 0 50% 0;border-radius:99px 99px 0 0;
+          background:linear-gradient(180deg, rgba(255,255,255,.32), transparent)}
+        .ac-bar>div>i{position:absolute;top:0;bottom:0;width:38%;border-radius:99px;
+          background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+          animation:sheen 3.4s ease-in-out infinite}
+        @keyframes sheen{0%{left:-40%}60%,100%{left:104%}}
         .ac-toggles{display:flex;gap:5px;flex-shrink:0}
         .ac-toggles button{padding:4px 9px;border-radius:99px;border:1px solid rgba(255,255,255,.1);
           background:transparent;color:#5b6b87;font-size:10.5px;font-weight:600;font-family:inherit;letter-spacing:.03em}
         .ac-toggles button.on{color:#e8edf7;border-color:rgba(255,255,255,.28);background:rgba(255,255,255,.09)}
         .ac-tabs{display:flex;gap:6px;margin:12px 0 8px}
-        .ac-tab{flex:1;padding:8px 0;border-radius:10px;border:none;font-size:12.5px;font-weight:600;
-          background:rgba(255,255,255,.05);color:#8496b5;font-family:inherit}
-        .ac-tab.on{background:rgba(255,255,255,.13);color:#fff}
+        .ac-tab{position:relative;flex:1;padding:9px 0 10px;border-radius:11px;border:none;font-size:12.5px;font-weight:600;
+          background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.02));
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.05), inset 0 -1px 0 rgba(0,0,0,.35);
+          color:#8496b5;font-family:inherit;transition:color .18s, background .18s, box-shadow .18s}
+        .ac-tab.on{color:#fff}
+        /* the active tab gets a lit rule under it rather than just a paler fill */
+        .ac-tab.on::after{content:'';position:absolute;left:22%;right:22%;bottom:5px;height:2px;border-radius:2px;
+          background:currentColor;box-shadow:0 0 9px currentColor}
         .ac-tab.tinted{color:#fff}
+        .ac-amt button{transition:background .15s, color .15s, box-shadow .15s}
         .ac-list{height:min(37vh,282px);overflow-y:auto;display:flex;flex-direction:column;gap:7px;padding-right:2px;
           -webkit-overflow-scrolling:touch}
-        .ac-row{display:flex;gap:10px;text-align:left;width:100%;padding:9px 11px;border-radius:12px;border:1px solid;
-          background:rgba(255,255,255,.035);color:inherit;font-family:inherit}
-        .ac-row:disabled{opacity:.45}
-        .ac-row:active:not(:disabled){background:rgba(255,255,255,.1)}
+        .ac-row{flex-shrink:0;display:flex;gap:10px;text-align:left;width:100%;padding:9px 12px;border-radius:13px;border:1px solid;
+          background:rgba(255,255,255,.035);color:inherit;font-family:inherit;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 1px 3px rgba(0,0,0,.35);
+          transition:transform .12s ease, filter .12s ease}
+        .ac-row:disabled{opacity:.45;box-shadow:none}
+        .ac-row:active:not(:disabled){transform:scale(.988);filter:brightness(1.25)}
         .ac-row-t{display:flex;justify-content:space-between;gap:8px;font-size:13.5px;font-weight:600}
-        .ac-row-s{font-size:11px;color:#7d8ca8;margin-top:1px}
-        .ac-row-c{font-size:11.5px;margin-top:4px;font-variant-numeric:tabular-nums;font-weight:600}
-        .ac-note{color:#64748b;font-weight:500;margin-left:8px}
+        .ac-row-s{font-size:11px;color:#7d8ca8;margin-top:2px}
+        .ac-row-c{font-size:12px;margin-top:5px;font-variant-numeric:tabular-nums;font-weight:700}
+        /* the note used to sit at the same size as the cost and swamped it */
+        .ac-note{display:block;color:#5d6b84;font-weight:500;font-size:10.5px;margin:3px 0 0 0;line-height:1.4}
+        .ac-bead{box-shadow:0 0 7px currentColor}
         .ac-amt{display:flex;gap:5px;margin-bottom:7px}
         .ac-amt button{padding:5px 10px;border-radius:8px;border:none;font-size:11.5px;font-weight:600;font-family:inherit;
           background:rgba(255,255,255,.06);color:#8496b5}
         .ac-amt button.on{color:#04060d;font-weight:700}
+        .ac-stats{flex-shrink:0;border-radius:13px;overflow:hidden;border:1px solid rgba(255,255,255,.07);
+          background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.015));
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+        .ac-stat{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 12px;font-size:12.5px}
+        .ac-stat+.ac-stat{border-top:1px solid rgba(255,255,255,.055)}
+        .ac-stat:nth-child(even){background:rgba(255,255,255,.022)}
+        .ac-stat b{font-weight:700;font-variant-numeric:tabular-nums}
         .ac-code{width:100%;height:92px;margin-top:10px;padding:9px;border-radius:10px;resize:none;
           background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);color:#c8d4e8;
           font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;line-height:1.45;
@@ -2315,6 +2352,7 @@ export default function Accretion() {
       <div className="ac-stage" onPointerDown={doTap} onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!e.repeat) doTap(e); }
       }} role="button" tabIndex={0} aria-label="Pull in mass">
+        <div className="ac-glow" style={{ background: `radial-gradient(ellipse, ${accent}66, ${tier.c[1]}33 55%, transparent 75%)` }} />
         <Body tier={tier} size={size} />
         {pops.map((p) => (
           <div key={p.id} className="ac-pop" style={{ left: p.x, top: p.y, color: accent }}>{p.t}</div>
@@ -2327,14 +2365,17 @@ export default function Accretion() {
           <div style={{
             width: `${progress * 100}%`,
             background: `linear-gradient(90deg, ${tier.c[1]}, ${accent}${next ? `, ${next.c[0]}` : ''})`,
-            boxShadow: `0 0 10px ${accent}88`,
-          }} />
+            boxShadow: `0 0 12px ${accent}99, 0 0 2px ${accent}`,
+          }}><i /></div>
         </div>
         <div className="ac-sub" style={{ marginTop: 5, display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ color: next ? `${next.c[0]}cc` : accent }}>
             {next ? `Next: ${next.n}` : 'Nothing left to absorb'}
           </span>
-          <span>{next ? `${fmt(next.at)} kg` : `${s.stage + 1}/${TIERS.length}`}</span>
+          <span>
+            {next ? <span style={{ color: accent, fontWeight: 700 }}>{Math.round(progress * 100)}% </span> : null}
+            {next ? `${fmt(next.at)} kg` : `${s.stage + 1}/${TIERS.length}`}
+          </span>
         </div>
       </div>
 
@@ -2457,6 +2498,7 @@ export default function Accretion() {
 
       {tab === 'stat' && (
         <div className="ac-list" ref={listEl} onScroll={onListScroll}>
+          <div className="ac-stats">
           {[
             ['Heaviest reached', `${fmt(s.best)} kg`],
             ['Stages passed', `${s.stage + 1} of ${TIERS.length}`],
@@ -2468,13 +2510,13 @@ export default function Accretion() {
             ['Shards earned', `${s.shardsTotal || 0}`],
             [PLAY_STAT, dur(s.played)],
           ].map(([k, v]) => (
-            <div key={k} onClick={k === PLAY_STAT ? nudgeDev : undefined}
-              style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 11px', fontSize: 12.5 }}>
-              <span style={{ color: '#7d8ca8' }}>{k}</span>
-              <span style={{ fontVariantNumeric: 'tabular-nums', color: k === 'Shards earned' ? SHARD_C : accent }}>{v}</span>
+            <div key={k} className="ac-stat" onClick={k === PLAY_STAT ? nudgeDev : undefined}>
+              <span style={{ color: '#8496b5' }}>{k}</span>
+              <b style={{ color: k === 'Shards earned' ? SHARD_C : accent }}>{v}</b>
             </div>
           ))}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,.07)', margin: '6px 0 2px' }} />
+          </div>
+          <div style={{ height: 2 }} />
           <div className="ac-sub" style={{ padding: '4px 11px' }}>
             {storageOk
               ? `Autosaves every 12 seconds · ${ago(savedAt)}`
