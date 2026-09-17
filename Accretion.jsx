@@ -107,7 +107,7 @@ const TIERS = [
   { n: 'Comet nucleus',      at: 2.2e14,  k: 'rock',    c: ['#cbd5e1', '#1e293b'], d: "Halley's nucleus: ice and dust, and a tail when it gets close." },
   { n: 'Planetesimal',       at: 1e17,    k: 'rock',    c: ['#a8a29e', '#3f3f46'], d: 'Fifty kilometres. The seed of a world.' },
   { n: 'Metal asteroid',     at: 2.29e19, k: 'rock',    c: ['#cbd5e1', '#475569'], d: '16 Psyche: iron and nickel, possibly a stripped planetary core.' },
-  { n: 'Asteroid',           at: 2.59e20, k: 'rock',    c: ['#b45309', '#451a03'], d: 'Vesta-class: melted, layered, and 4.5 billion years old.' },
+  { n: 'Asteroid',           at: 2.59e20, k: 'vesta',   c: ['#b45309', '#451a03'], d: 'Vesta-class: melted, layered, and 4.5 billion years old.' },
   { n: 'Dwarf planet',       at: 1.31e22, k: 'dwarf',   c: ['#e8c493', '#6b3f1f'], d: 'Pluto-class. Round under its own gravity at last.' },
   { n: 'Terrestrial planet', at: EARTH,   k: 'world',   c: ['#38bdf8', '#047857'], d: 'One Earth mass. Enough pull to keep an atmosphere.' },
   { n: 'Ice giant',          at: 1.02e26, k: 'ice',     c: ['#7dd3fc', '#075985'], d: 'Neptune-class. Supersonic winds over a mantle of hot ice.' },
@@ -395,7 +395,7 @@ const SFX = (() => {
       if (kind === 'atom') {
         tone(880 * d * j, { type: 'triangle', dur: 0.09, gain: 0.15 });
         tone(1760 * d * j, { type: 'sine', dur: 0.05, gain: 0.045 });
-      } else if (kind === 'rock') {
+      } else if (kind === 'rock' || kind === 'vesta') {
         noise({ dur: 0.07, gain: 0.1, freq: 540 * d * j, q: 1.4 });
         tone(124 * d * j, { type: 'sine', dur: 0.1, gain: 0.14, glide: 82 * d });
       } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf' || kind === 'ember') {
@@ -1039,6 +1039,70 @@ const Body = memo(function Body({ tier, size }) {
           <div className="ac-crater" style={{ left: '26%', top: '30%', width: size * 0.14, height: size * 0.14 }} />
           <div className="ac-crater" style={{ left: '58%', top: '20%', width: size * 0.08, height: size * 0.08 }} />
           <div className="ac-crater" style={{ left: '46%', top: '58%', width: size * 0.19, height: size * 0.19 }} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Vesta. The generic rock is an eight-sided clip-path polygon, and a
+     polygon has corners; nothing in the belt does. Vesta also has the one
+     feature no generic rock carries: Rheasilvia, an impact basin at its south
+     pole nearly as wide as the body, with a central peak, and the troughs it
+     cracked open around the equator. The scoop lives in the OUTLINE -- from a
+     little above the equator Vesta is a lopsided oblate ball with its bottom
+     flattened -- because a hollow painted onto a round disc never reads as
+     one. Two versions were wrong first: a bowl drawn on the lower half read as
+     a cup sitting on a sphere, and radii small enough to cut the bottom flat
+     turned it into a thimble. Surface is matte, grey-tan under the tier's warm
+     cast rather than the cast on its own, or it is a small Mars. */
+  if (tier.k === 'vesta') {
+    const w = size * 0.90, h = size * 0.70;
+    return (
+      <div className="ac-body" style={s}>
+        <div style={{
+          position: 'relative', width: w, height: h, overflow: 'hidden',
+          borderRadius: '52% 48% 42% 46% / 60% 64% 36% 34%',
+          background: 'radial-gradient(ellipse at 34% 28%, #cbbba7 0%, #a08468 26%, #7d6249 52%, #4f3a2a 78%, #2c1e13 100%)',
+          boxShadow: `inset ${-w * 0.08}px ${-h * 0.06}px ${w * 0.20}px rgba(15,8,3,.7), 0 0 ${size * 0.14}px ${b}66`,
+        }}>
+          <div style={{ position: 'absolute', inset: 0, background: a, opacity: 0.16, mixBlendMode: 'multiply' }} />
+          {/* albedo patches: bright ejecta over dark old crust */}
+          {[[12, 14, 28, 20, '#e9ddcb', .28], [50, 10, 24, 15, '#e9ddcb', .22], [64, 34, 26, 18, '#2a1a0f', .36],
+            [20, 42, 22, 15, '#2a1a0f', .30], [40, 26, 18, 11, '#f2e9dc', .18], [6, 58, 20, 12, '#1f140b', .28]]
+            .map(([l, t, ww, hh, c, o], i) => (
+              <div key={`m${i}`} style={{
+                position: 'absolute', left: `${l}%`, top: `${t}%`, width: `${ww}%`, height: `${hh}%`,
+                borderRadius: '50%', background: c, opacity: o, filter: 'blur(4px)',
+              }} />
+            ))}
+          {[[28, 24, 0.085], [56, 18, 0.055], [70, 44, 0.065], [16, 38, 0.045], [44, 48, 0.05]].map(([l, t, d], i) => (
+            <div key={`c${i}`} className="ac-crater" style={{ left: `${l}%`, top: `${t}%`, width: size * d, height: size * d }} />
+          ))}
+          {/* Divalia Fossae wrap the body, so they bow rather than run straight */}
+          {[[57, .42, 118], [62, .3, 112]].map(([t, o, ww], i) => (
+            <div key={`t${i}`} style={{
+              position: 'absolute', left: `${(100 - ww) / 2}%`, top: `${t}%`, width: `${ww}%`, height: size * 0.05,
+              borderRadius: '50%', borderTop: `${Math.max(1, size * 0.012)}px solid rgba(18,9,3,${o})`,
+              boxSizing: 'border-box', transform: 'rotate(-3deg)',
+            }} />
+          ))}
+          {/* the basin: no upper edge, just shadow gathering into the cut-away
+              bottom, with the far wall catching a little light on the sun side */}
+          <div style={{
+            position: 'absolute', left: '-4%', right: '-4%', bottom: '-14%', height: '58%',
+            background: 'radial-gradient(ellipse at 50% 100%, rgba(12,6,2,.88) 0%, rgba(12,6,2,.55) 38%, rgba(12,6,2,.2) 64%, transparent 84%)',
+          }} />
+          <div style={{
+            position: 'absolute', left: '8%', bottom: '4%', width: '60%', height: size * 0.03, borderRadius: '50%',
+            background: 'linear-gradient(90deg, transparent, rgba(225,200,170,.5) 30%, rgba(225,200,170,.25) 70%, transparent)',
+            filter: `blur(${size * 0.008}px)`,
+          }} />
+          <div style={{
+            position: 'absolute', left: '44%', bottom: '9%', width: '12%', height: '9%',
+            borderRadius: '50% 50% 45% 45%', opacity: 0.9,
+            background: 'radial-gradient(ellipse at 38% 30%, #9d8a74, #5c4634 55%, #33241a 100%)',
+            boxShadow: `${w * 0.01}px ${h * 0.008}px ${w * 0.025}px rgba(0,0,0,.55)`,
+          }} />
         </div>
       </div>
     );
