@@ -1054,7 +1054,10 @@ const Body = memo(function Body({ tier, size }) {
      one. Two versions were wrong first: a bowl drawn on the lower half read as
      a cup sitting on a sphere, and radii small enough to cut the bottom flat
      turned it into a thimble. Surface is matte, grey-tan under the tier's warm
-     cast rather than the cast on its own, or it is a small Mars. */
+     cast rather than the cast on its own, or it is a small Mars.
+     The basin's central peak is real but is not drawn: at 117px it was a
+     few pixels of lighter bump at the bottom edge and read as a pebble
+     stuck to the body rather than as a mountain inside a crater. */
   if (tier.k === 'vesta') {
     const w = size * 0.90, h = size * 0.70;
     return (
@@ -1096,12 +1099,6 @@ const Body = memo(function Body({ tier, size }) {
             position: 'absolute', left: '8%', bottom: '4%', width: '60%', height: size * 0.03, borderRadius: '50%',
             background: 'linear-gradient(90deg, transparent, rgba(225,200,170,.5) 30%, rgba(225,200,170,.25) 70%, transparent)',
             filter: `blur(${size * 0.008}px)`,
-          }} />
-          <div style={{
-            position: 'absolute', left: '44%', bottom: '9%', width: '12%', height: '9%',
-            borderRadius: '50% 50% 45% 45%', opacity: 0.9,
-            background: 'radial-gradient(ellipse at 38% 30%, #9d8a74, #5c4634 55%, #33241a 100%)',
-            boxShadow: `${w * 0.01}px ${h * 0.008}px ${w * 0.025}px rgba(0,0,0,.55)`,
           }} />
         </div>
       </div>
