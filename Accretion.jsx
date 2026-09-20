@@ -77,7 +77,7 @@ const BALANCE = {
   shardBase: 2,       // shards for reaching the prestige threshold at all...
   shardPerDecade: 4,  // ...and this many for every decade of mass above it
   densBase: 2,        // the first density level costs this many shards...
-  densGrowth: 1.45,   // ...and each one after it costs this much more again
+  densGrowth: 1.4,    // ...and each one after it costs this much more again
   densStep: 1.15,     // and each one multiplies output by this, compounding
 };
 
@@ -542,11 +542,21 @@ const stageFor = (best) => {
    thing in the game you buy with shards besides perks. Each level compounds,
    so the return never tapers -- level forty is worth exactly as much as level
    one. What tapers is how fast you can afford them, because the cost grows
-   45% a level against a shard income that only grows with the multiplier
-   itself. Five levels come out of a first full run (x2.01), the old x3 wall
-   falls around level eight, and it keeps paying from there without ever
-   turning into a divisor that collapses the game: reaching x16 is roughly
-   190 hours of play. */
+   40% a level against a shard income that only grows with the multiplier
+   itself. Eight levels come out of a first full run (x3.06), and it keeps
+   paying from there without ever turning into a divisor that collapses the
+   game: x16 is roughly 100 hours of play, x33 about 240.
+
+   The ratio is the whole safety argument, and it is what to check before
+   touching either constant: cost climbs 1.4x a level while income climbs
+   with the multiplier at 1.15x, so each level costs 1.22x more relative to
+   what you earn. Above 1 the track self-limits; at or below it the
+   multiplier runs away and takes run length with it.
+
+   These numbers move when the ladder or the shard curve does. They last read
+   27 shards a run over a 7.87h ladder, which made it five levels a run; the
+   multiverse band and the flat shard curve turned that into 98 over 16.87h
+   without anybody updating the note. */
 const shardMult = (s) => Math.pow(BALANCE.densStep, s.dens || 0);
 const densCost = (s) => Math.ceil(BALANCE.densBase * Math.pow(BALANCE.densGrowth, s.dens || 0));
 /* What a pile of shards is actually worth from where you stand. Shards buy
