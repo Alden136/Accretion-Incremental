@@ -98,7 +98,7 @@ const TIERS = [
   { n: 'Dust aggregate',     at: 1e-13,   k: 'rock',    c: ['#e7e5e4', '#a8a29e'], d: 'Fluffy, loosely bound, held together by nothing but contact.' },
   { n: 'Mote',               at: 1e-9,    k: 'rock',    c: ['#d6d3d1', '#57534e'], d: 'Big enough to see in a sunbeam. Barely.' },
   { n: 'Grit',               at: 1e-5,    k: 'grit',    c: ['#a8a29e', '#44403c'], d: 'A millimetre. Collisions start building instead of shattering.' },
-  { n: 'Pebble',             at: 1e-1,    k: 'rock',    c: ['#a8a29e', '#292524'], d: 'Pebble accretion: the fast lane from dust to planet.' },
+  { n: 'Pebble',             at: 1e-1,    k: 'pebble',  c: ['#c4b8a8', '#3f352f'], d: 'Pebble accretion: the fast lane from dust to planet.' },
   { n: 'Boulder',            at: 1e4,     k: 'rock',    c: ['#94a3b8', '#334155'], d: 'Ten tonnes, tumbling through the disk.' },
   { n: 'Meteoroid',          at: 1e6,     k: 'rock',    c: ['#a8a29e', '#292524'], d: 'Nine metres of rock. Big enough now to survive an atmosphere.' },
   { n: 'Monolith',           at: 1e8,     k: 'rock',    c: ['#a1a1aa', '#3f3f46'], d: 'Forty metres of loose rubble that keeps finding more rubble.' },
@@ -395,7 +395,7 @@ const SFX = (() => {
       if (kind === 'atom') {
         tone(880 * d * j, { type: 'triangle', dur: 0.09, gain: 0.15 });
         tone(1760 * d * j, { type: 'sine', dur: 0.05, gain: 0.045 });
-      } else if (kind === 'rock' || kind === 'vesta' || kind === 'grit') {
+      } else if (kind === 'rock' || kind === 'vesta' || kind === 'grit' || kind === 'pebble') {
         noise({ dur: 0.07, gain: 0.1, freq: 540 * d * j, q: 1.4 });
         tone(124 * d * j, { type: 'sine', dur: 0.1, gain: 0.14, glide: 82 * d });
       } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf' || kind === 'ember') {
@@ -1046,6 +1046,57 @@ const Body = memo(function Body({ tier, size }) {
           background: `radial-gradient(circle at 35% 30%, ${a}, ${b})`,
           boxShadow: `0 0 ${size * 0.3}px ${b}`,
         }} />
+      </div>
+    );
+  }
+
+  /* A pebble should read as something weathered and hand-sized, not as the
+     cratered asteroid used by the rest of the rock ladder. Its soft silhouette,
+     mineral seam and tiny inclusions stay legible even at the early-game size. */
+  if (tier.k === 'pebble') {
+    const flecks = [
+      [24, 31, 0.030, '#ede9e3'], [68, 25, 0.024, '#8b735f'],
+      [77, 57, 0.034, '#d8cbbd'], [39, 70, 0.020, '#806b5a'],
+      [18, 59, 0.018, '#f1ece5'], [57, 43, 0.016, '#665248'],
+    ];
+    return (
+      <div className="ac-body" style={s}>
+        <div style={{
+          position: 'absolute', width: size * 0.58, height: size * 0.14,
+          top: '67%', borderRadius: '50%',
+          background: 'rgba(0,0,0,.42)', filter: `blur(${size * 0.045}px)`,
+          transform: 'rotate(-7deg)',
+        }} />
+        <div style={{
+          width: size * 0.68, height: size * 0.54, position: 'relative', overflow: 'hidden',
+          borderRadius: '58% 42% 54% 46% / 46% 55% 45% 54%', transform: 'rotate(-9deg)',
+          background: `radial-gradient(ellipse at 31% 24%, #eee7dd 0 4%, ${a} 25%, #847568 58%, ${b} 100%)`,
+          boxShadow: `inset -${size * 0.09}px -${size * 0.07}px ${size * 0.12}px rgba(9,6,4,.58), inset ${size * 0.025}px ${size * 0.02}px ${size * 0.045}px rgba(255,255,255,.2), 0 ${size * 0.045}px ${size * 0.07}px rgba(0,0,0,.55)`,
+        }}>
+          <div style={{
+            position: 'absolute', left: '5%', top: '47%', width: '90%', height: Math.max(1.5, size * 0.018),
+            borderRadius: '50%', transform: 'rotate(9deg) skewY(-5deg)',
+            background: 'linear-gradient(90deg, transparent 0 4%, rgba(226,213,195,.72) 8% 28%, transparent 30% 35%, rgba(226,213,195,.76) 38% 66%, transparent 69% 73%, rgba(226,213,195,.64) 76% 94%, transparent 98%)',
+            boxShadow: `0 -${size * 0.008}px 0 rgba(72,55,44,.26)`,
+          }} />
+          <div style={{
+            position: 'absolute', left: '58%', top: '42%', width: '18%', height: Math.max(1, size * 0.010),
+            borderRadius: '50%', transform: 'rotate(-33deg)', transformOrigin: 'left center',
+            background: 'linear-gradient(90deg, rgba(226,213,195,.58), transparent)',
+          }} />
+          <div style={{
+            position: 'absolute', left: '13%', top: '8%', width: '47%', height: '23%',
+            borderRadius: '50%', transform: 'rotate(-8deg)',
+            background: 'radial-gradient(ellipse, rgba(255,255,255,.24), transparent 70%)',
+          }} />
+          {flecks.map(([x, y, r, color], i) => (
+            <div key={i} style={{
+              position: 'absolute', left: `${x}%`, top: `${y}%`,
+              width: size * r, height: size * r * 0.72, borderRadius: '50%',
+              background: color, opacity: 0.72, transform: `rotate(${i * 31 - 45}deg)`,
+            }} />
+          ))}
+        </div>
       </div>
     );
   }
