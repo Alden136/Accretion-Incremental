@@ -97,7 +97,7 @@ const TIERS = [
   { n: 'Dust grain',         at: 1e-17,   k: 'rock',    c: ['#d6d3d1', '#78716c'], d: 'Silicate, a tenth of a micron. This is what reddens starlight.' },
   { n: 'Dust aggregate',     at: 1e-13,   k: 'rock',    c: ['#e7e5e4', '#a8a29e'], d: 'Fluffy, loosely bound, held together by nothing but contact.' },
   { n: 'Mote',               at: 1e-9,    k: 'rock',    c: ['#d6d3d1', '#57534e'], d: 'Big enough to see in a sunbeam. Barely.' },
-  { n: 'Grit',               at: 1e-5,    k: 'rock',    c: ['#a8a29e', '#44403c'], d: 'A millimetre. Collisions start building instead of shattering.' },
+  { n: 'Grit',               at: 1e-5,    k: 'grit',    c: ['#a8a29e', '#44403c'], d: 'A millimetre. Collisions start building instead of shattering.' },
   { n: 'Pebble',             at: 1e-1,    k: 'rock',    c: ['#a8a29e', '#292524'], d: 'Pebble accretion: the fast lane from dust to planet.' },
   { n: 'Boulder',            at: 1e4,     k: 'rock',    c: ['#94a3b8', '#334155'], d: 'Ten tonnes, tumbling through the disk.' },
   { n: 'Meteoroid',          at: 1e6,     k: 'rock',    c: ['#a8a29e', '#292524'], d: 'Nine metres of rock. Big enough now to survive an atmosphere.' },
@@ -395,7 +395,7 @@ const SFX = (() => {
       if (kind === 'atom') {
         tone(880 * d * j, { type: 'triangle', dur: 0.09, gain: 0.15 });
         tone(1760 * d * j, { type: 'sine', dur: 0.05, gain: 0.045 });
-      } else if (kind === 'rock' || kind === 'vesta') {
+      } else if (kind === 'rock' || kind === 'vesta' || kind === 'grit') {
         noise({ dur: 0.07, gain: 0.1, freq: 540 * d * j, q: 1.4 });
         tone(124 * d * j, { type: 'sine', dur: 0.1, gain: 0.14, glide: 82 * d });
       } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf' || kind === 'ember') {
@@ -1010,6 +1010,15 @@ const GAS_MOONS = [
   [97.6, 34.5, 0.035, '#f1dcae'], [115.6, 28.7, 0.026, '#e8d7b4'],
 ];
 
+/* Grit's grains: centre x, centre y (% of box), diameter (x size), colour,
+   chondrule. Listed largest first so the small ones overlap the big ones. */
+const GRIT_GRAINS = [
+  [46, 50, 0.40, '#8f887f', 0], [72, 40, 0.26, '#a39a8c', 0], [26, 36, 0.24, '#7a746c', 0],
+  [64, 70, 0.26, '#6c665f', 0], [30, 68, 0.22, '#958c80', 0], [50, 22, 0.20, '#9e978d', 0],
+  [78, 62, 0.15, '#857868', 0], [18, 54, 0.14, '#a39b90', 0], [46, 82, 0.14, '#7f786f', 0],
+  [66, 22, 0.12, '#8c857c', 0], [60, 44, 0.13, '#c9b48e', 1], [34, 56, 0.10, '#b8b0a4', 1],
+];
+
 /* Old stars in the bulge are yellow, young ones out in the arms are blue. That
    one colour gradient is the most recognisable thing about a spiral galaxy --
    it does more work here than any amount of added detail. */
@@ -1052,6 +1061,49 @@ const Body = memo(function Body({ tier, size }) {
           <div className="ac-crater" style={{ left: '26%', top: '30%', width: size * 0.14, height: size * 0.14 }} />
           <div className="ac-crater" style={{ left: '58%', top: '20%', width: size * 0.08, height: size * 0.08 }} />
           <div className="ac-crater" style={{ left: '46%', top: '58%', width: size * 0.19, height: size * 0.19 }} />
+        </div>
+      </div>
+    );
+  }
+
+  /* Grit. A millimetre is the size at which collisions start sticking
+     instead of shattering, so the grain is drawn as the thing that happens:
+     an aggregate. Irregular matte clasts stuck together in a dark fine-dust
+     matrix, with two chondrules -- once-molten glassy beads, the only shiny
+     things in a primitive meteorite -- to catch the eye. The outline comes
+     from the grains themselves, which is what makes it lumpy rather than
+     another polygon. The matrix sits well inside them; drawn as a full disc
+     behind the grains it showed its own round edge and read as a plate. */
+  if (tier.k === 'grit') {
+    const box = size * 0.98;
+    return (
+      <div className="ac-body" style={s}>
+        <div style={{ position: 'relative', width: box, height: box }}>
+          <div style={{
+            position: 'absolute', left: '18%', top: '18%', width: '66%', height: '66%',
+            borderRadius: '46% 54% 50% 50% / 52% 44% 56% 48%',
+            background: 'radial-gradient(circle at 40% 36%, #4a453f, #221f1c 72%)',
+            boxShadow: `0 0 ${size * 0.06}px ${size * 0.04}px #221f1c, 0 0 ${size * 0.16}px ${b}66`,
+          }} />
+          {GRIT_GRAINS.map(([x, y, d, c, glass], i) => {
+            const D = size * d;
+            return (
+              <div key={`g${i}`} style={{
+                position: 'absolute', left: `calc(${x}% - ${D / 2}px)`, top: `calc(${y}% - ${D / 2}px)`, width: D, height: D,
+                borderRadius: glass ? '50%' : '42% 58% 38% 62% / 56% 40% 60% 44%',
+                background: glass
+                  ? `radial-gradient(circle at 34% 30%, #fff8ea 0%, ${c} 26%, #3a3128 100%)`
+                  : `radial-gradient(circle at 34% 30%, ${c} 0%, ${c} 24%, #25211d 100%)`,
+                boxShadow: `${D * 0.04}px ${D * 0.06}px ${D * 0.12}px rgba(0,0,0,.6)`,
+              }} />
+            );
+          })}
+          {[[38, 30, 0.026], [56, 58, 0.022], [70, 52, 0.022], [42, 40, 0.016]].map(([x, y, d], i) => (
+            <div key={`d${i}`} style={{
+              position: 'absolute', left: `${x}%`, top: `${y}%`, width: size * d, height: size * d,
+              borderRadius: '50%', background: '#cfc7bb', opacity: 0.55,
+            }} />
+          ))}
         </div>
       </div>
     );
