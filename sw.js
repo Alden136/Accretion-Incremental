@@ -1,5 +1,5 @@
 /* Cache-first app shell. npm run build versions the cache from shell contents. */
-const CACHE = 'accretion-e958877172273e72';
+const CACHE = 'accretion-2f7619922965ef5f';
 const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon.svg',
                './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 

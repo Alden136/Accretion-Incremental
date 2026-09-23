@@ -116,7 +116,7 @@ const TIERS = [
   { n: 'Red dwarf',          at: 1.6e29,  k: 'star',    c: ['#f87171', '#7f1d1d'], d: 'Fully convective and frugal. Good for a trillion years.' },
   { n: 'Sun-like star',      at: SUN,     k: 'star',    c: ['#fde68a', '#f59e0b'], d: 'One solar mass, burning hydrogen on the main sequence.' },
   { n: 'Neutron star',       at: 4.1e30,  k: 'neutron', c: ['#e0f2fe', '#38bdf8'], d: 'PSR J0740+6620: two solar masses packed into twenty kilometres.' },
-  { n: 'Blue supergiant',    at: 4e31,    k: 'star',    c: ['#bfdbfe', '#2563eb'], d: 'Twenty solar masses, spent in ten million years.' },
+  { n: 'Blue supergiant',    at: 4e31,    k: 'supergiant', c: ['#bfdbfe', '#2563eb'], d: 'Twenty solar masses, spent in ten million years.' },
   { n: 'Stellar black hole', at: 2e32,    k: 'hole',    c: ['#a78bfa', '#1e1b4b'], d: 'The core lost its argument with gravity.',
     h: { r: 0.34, disk: 0.78, dh: 0.30, spin: 2.0, ring: 0.35, glow: 0.8, feed: 'companion' } },
   { n: 'Intermediate hole',  at: 2e33,    k: 'hole',    c: ['#c084fc', '#2e1065'], d: 'A thousand suns. Rare, and mostly still hypothetical.',
@@ -401,7 +401,7 @@ const SFX = (() => {
       } else if (kind === 'world' || kind === 'ice' || kind === 'gas' || kind === 'dwarf' || kind === 'ember') {
         tone(196 * d * j, { type: 'sine', dur: 0.18, gain: 0.16, glide: 152 * d });
         noise({ dur: 0.13, gain: 0.035, freq: 900, type: 'lowpass' });
-      } else if (kind === 'star') {
+      } else if (kind === 'star' || kind === 'supergiant') {
         tone(262 * d * j, { type: 'sine', dur: 0.2, gain: 0.13 });
         tone(392 * d * j, { type: 'sine', dur: 0.2, gain: 0.06, delay: 0.02 });
       } else if (kind === 'neutron') {
@@ -1886,6 +1886,66 @@ const Body = memo(function Body({ tier, size }) {
           width: size, height: size,
           background: `radial-gradient(circle, ${a}33 8%, ${b}55 38%, transparent 70%)`,
         }} />
+      </div>
+    );
+  }
+
+  /* Blue supergiant, drawn from a supplied 800x800 SVG. Its full-square
+     space background and background stars are left out: on the stage they
+     drew as a visible box behind the star. Everything else is as supplied.
+     The SVG is scaled so the disc (r=150 of 800) matches the 0.72 x size
+     sphere the other stars use, so the halo and wind shells spill well past
+     the body box, as the other stars' glows do. Ids are prefixed because
+     inline SVG ids are page-global. */
+  if (tier.k === 'supergiant') {
+    const W = size * 0.72 * 800 / 300;
+    return (
+      <div className="ac-body" style={s}>
+        <svg viewBox="0 0 800 800" width={W} height={W} aria-hidden="true"
+          style={{ position: 'absolute', left: (size - W) / 2, top: (size - W) / 2, pointerEvents: 'none' }}>
+          <defs>
+            <radialGradient id="bsg-halo" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#9fd4ff" stopOpacity="0.55" />
+              <stop offset="35%" stopColor="#3f8cff" stopOpacity="0.25" />
+              <stop offset="70%" stopColor="#1a3fbf" stopOpacity="0.08" />
+              <stop offset="100%" stopColor="#0a1a60" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="bsg-corona" cx="50%" cy="50%" r="50%">
+              <stop offset="55%" stopColor="#cfe9ff" stopOpacity="0.9" />
+              <stop offset="75%" stopColor="#6fb2ff" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="#2d6bff" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="bsg-surface" cx="42%" cy="40%" r="62%">
+              <stop offset="0%" stopColor="#ffffff" />
+              <stop offset="25%" stopColor="#e6f4ff" />
+              <stop offset="60%" stopColor="#8cc6ff" />
+              <stop offset="88%" stopColor="#3f86f0" />
+              <stop offset="100%" stopColor="#2459c9" />
+            </radialGradient>
+            <filter id="bsg-turb" x="-10%" y="-10%" width="120%" height="120%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="4" seed="7" result="n" />
+              <feColorMatrix in="n" type="matrix" values="0 0 0 0 0.85  0 0 0 0 0.93  0 0 0 0 1  0 0 0 0.55 0" />
+              <feComposite in2="SourceGraphic" operator="in" />
+            </filter>
+            <filter id="bsg-blur8"><feGaussianBlur stdDeviation="8" /></filter>
+            <filter id="bsg-blur3"><feGaussianBlur stdDeviation="3" /></filter>
+            <clipPath id="bsg-disk"><circle cx="400" cy="400" r="150" /></clipPath>
+          </defs>
+          {/* ejected stellar wind shells */}
+          <circle cx="400" cy="400" r="330" fill="none" stroke="#4a7dff" strokeOpacity="0.12" strokeWidth="18" filter="url(#bsg-blur8)" />
+          <circle cx="400" cy="400" r="270" fill="none" stroke="#7fb4ff" strokeOpacity="0.1" strokeWidth="10" filter="url(#bsg-blur8)" />
+          {/* outer halo and corona */}
+          <circle cx="400" cy="400" r="380" fill="url(#bsg-halo)" />
+          <circle cx="400" cy="400" r="215" fill="url(#bsg-corona)" filter="url(#bsg-blur3)" />
+          {/* stellar disc, granulation and limb darkening */}
+          <circle cx="400" cy="400" r="150" fill="url(#bsg-surface)" />
+          <g clipPath="url(#bsg-disk)">
+            <rect x="240" y="240" width="320" height="320" filter="url(#bsg-turb)" fill="#fff" opacity="0.6" />
+            <circle cx="400" cy="400" r="150" fill="none" stroke="#1d4bb0" strokeWidth="30" strokeOpacity="0.35" filter="url(#bsg-blur8)" />
+          </g>
+          {/* bright core highlight */}
+          <circle cx="378" cy="375" r="55" fill="#ffffff" opacity="0.55" filter="url(#bsg-blur8)" />
+        </svg>
       </div>
     );
   }
