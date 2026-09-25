@@ -24,7 +24,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, mem
      and every price is denominated in mass, so a permanent global
      multiplier of x divides the whole run length by exactly x.
      The shard bonus is the only permanent one, and it is bought
-     rather than granted: every level costs 45% more shards than
+     rather than granted: every level costs 40% more shards than
      the last while giving the same +15%, so the EFFECT never
      diminishes but the pace does. That geometric cost is what
      keeps it safe -- an early version handed out +15% per shard
@@ -55,8 +55,10 @@ import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, mem
      stays as quick as it ever was and the back half does the work,
      because a run this long cannot afford a slow first minute.
    Simulated result: ~1 min/stage in the rock era, ~7 min planets-to-
-   stars, ~18 min black holes, ~34 min galaxies-to-universe; ~8 h
-   first run, settling to ~2.7 h once the shard cap is reached.
+   stars, ~18 min black holes, ~34 min galaxies-to-universe; ~7.9 h
+   to the observable universe and ~16.9 h to the end of the multiverse
+   band on a first run. There is no shard cap any more: a later run is
+   shorter by exactly the density multiplier it has bought, before perks.
    ============================================================ */
 
 const BALANCE = {
@@ -275,16 +277,24 @@ function altMass(kg) {
 
 /* ---------- audio: everything is synthesised, no asset files ----------
    Sounds deepen as you gain mass, so an atom pings and a black hole
-   thuds. The context is created lazily on the first touch because
-   mobile browsers refuse to start audio without a user gesture.      */
+   thuds. The context is created lazily on the first gesture anywhere in
+   the game, because browsers refuse to start audio without one.      */
 const SFX = (() => {
   let ctx = null, master = null, noiseBuf = null, drone = null;
   let on = true, lastPull = -1;
+  /* Nothing may touch audio before the first user gesture. A context made
+     earlier starts suspended, and whatever gets scheduled on it does not
+     vanish -- it waits, and plays the moment the context starts. Returning
+     to a save that crosses a stage fired the stage chord from the game loop
+     on load, so it sat queued and went off late on the first click, and on
+     iOS every button sound queued behind it until the body was tapped. */
+  let armed = false;
 
   const VOLUME = 1.8;   // overall loudness; the limiter below catches the peaks
 
   const ensure = () => {
     if (ctx) return ctx;
+    if (!armed) return null;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
@@ -368,7 +378,7 @@ const SFX = (() => {
   };
 
   return {
-    unlock() { const c = ensure(); if (c && c.state === 'suspended') c.resume(); },
+    unlock() { armed = true; const c = ensure(); if (c && c.state === 'suspended') c.resume(); },
     setOn(v) { on = v; if (!v) stopDrone(); },
     suspend() { if (ctx && ctx.state === 'running') ctx.suspend(); },
     resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); },
@@ -2384,9 +2394,13 @@ export default function Accretion() {
     save(); render((x) => x + 1);
   };
 
+  /* The hum button only lights while sound is on, so with sound off it used
+     to flip a setting you could not see: presses looked dead, and turning
+     sound back on later started or skipped the drone depending on how many
+     times it had been pressed. With sound off it now turns both on. */
   const toggleHum = () => {
     SFX.unlock();
-    s.hum = !s.hum;
+    if (!s.sfx) { s.sfx = true; s.hum = true; } else s.hum = !s.hum;
     SFX.setOn(s.sfx);
     SFX.hum(s.hum, s.stage);
     save(); render((x) => x + 1);
@@ -2439,7 +2453,7 @@ export default function Accretion() {
     .filter((i) => !s.ups[i] && (s.dev || s.best >= UPGRADES[i].cost * 0.15));
 
   return (
-    <div className="ac-app" style={{
+    <div className="ac-app" onPointerUpCapture={SFX.unlock} onKeyDownCapture={SFX.unlock} style={{
       background: `radial-gradient(130% 90% at 50% -8%, ${tier.c[1]}44 0%, #0b1224 34%, #06090f 68%, #03050b 100%)`,
     }}>
       <div className="ac-aura" style={{ background: `radial-gradient(circle, ${tier.c[0]}26, transparent 68%)`, left: '-32%', top: '4%' }} />
@@ -2778,7 +2792,7 @@ export default function Accretion() {
             <button className="ac-tab" onClick={() => { SFX.click(); setIo({ mode: 'import', text: '', msg: '' }); }}>Import</button>
           </div>
           <button className="ac-tab" style={{ marginTop: 2 }}
-            onClick={() => { if (wipe) { G.current = newGame(); SFX.hum(false); setWipe(false); scrollPos.current = {}; save(); } else setWipe(true); }}>
+            onClick={() => { if (wipe) { G.current = newGame(); SFX.setOn(G.current.sfx); SFX.hum(false); setFlash(null); setWipe(false); scrollPos.current = {}; save(); } else setWipe(true); }}>
             {wipe ? 'Tap again to erase everything' : 'Start over'}
           </button>
 

@@ -1,7 +1,7 @@
 {
   "name": "Accretion",
   "short_name": "Accretion",
-  "description": "An incremental game about mass, from a hydrogen atom to the observable universe.",
+  "description": "An incremental game about mass, from a hydrogen atom to the multiverse.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

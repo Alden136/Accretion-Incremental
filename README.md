@@ -1,6 +1,6 @@
 # Accretion Incremental
 
-An incremental game about growing from an atom to the observable universe.
+An incremental game about growing from an atom to the multiverse.
 
 ## Development
 
